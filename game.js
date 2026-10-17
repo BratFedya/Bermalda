@@ -141,13 +141,11 @@
     return v;
   }
   function total() { return S.cash + holdingsValue(S.price); }
-  var WD = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
   var SI = { 'Лето': '☀️', 'Осень': '🍂', 'Зима': '❄️', 'Весна': '🌸' };
   function morn(d) { return [d.morning].concat(d.extra || []); }
   function eve(d) { return (d.evening ? [d.evening] : []).concat(d.late || []); }
-  function stars(c) { return Math.min(5, 1 + Math.floor((c.age || 20) / 10)); }
   function sp(id) { return S.lvl === 2 ? Math.max(1, Math.round(S.price[id] * 0.04)) : 0; }
-  function sens(c, e) { if (S.lvl !== 2) return 1; var s = 1.35 - 0.1 * stars(c); return e < 0 ? s * 1.3 : s; }
+  function sens(c, e) { return S.lvl === 2 && c.startup ? (e < 0 ? 1.5 : 1.25) : 1; }
   function intros() { return C.texts.intro.concat(S && S.lvl === 2 ? (C.texts.intro2 || []) : []); }
   function startupNews(c, win) {
     var X = C.texts.startup[win ? 'win' : 'fail'], e = {}, n = {};
@@ -168,7 +166,8 @@
     var seed = m ? parseInt(m[1], 10) : (Date.now() ^ Math.floor(Math.random() * 1e9));
     S = {
       rng: mulberry32(seed), cash: C.startCoins, day: 0, step: 1, lvl: lvl || 1, su: {}, season: '',
-      shares: {}, pf: {}, price: {}, hist: {}, plan: [], flow: {}, log: [], last: null
+      shares: {}, daily: [C.startCoins], active: [],
+      pf: {}, price: {}, hist: {}, plan: [], flow: {}, log: [], last: null
     };
     C.companies.forEach(function (c) {
       S.shares[c.id] = 0; S.pf[c.id] = c.price; S.price[c.id] = Math.round(c.price); S.hist[c.id] = [Math.round(c.price)];
@@ -179,6 +178,7 @@
   function buildPlan() {
     var used = {}, slots = {};
     function hasTag(it, tag) { return !tag || (it.tags || []).indexOf(tag) >= 0; }
+    function allowed(it) { return S.lvl === 2 || !(it.durationDays > 1); }
     function pick(spec) {
       var pool = C.pools[spec.pool];
       if (pool.type === 'pair') {
@@ -186,8 +186,8 @@
         if (slots[key] == null) slots[key] = Math.floor(S.rng() * pool.items.length);
         return pool.items[slots[key]][spec.part];
       }
-      var items = pool.items.filter(function (it) { return !used[it.id] && hasTag(it, spec.tag); });
-      if (!items.length) items = pool.items.filter(function (it) { return hasTag(it, spec.tag); });
+      var items = pool.items.filter(function (it) { return !used[it.id] && hasTag(it, spec.tag) && allowed(it); });
+      if (!items.length) items = pool.items.filter(function (it) { return hasTag(it, spec.tag) && allowed(it); });
       if (!items.length) items = pool.items;
       var it = items[Math.floor(S.rng() * items.length)];
       used[it.id] = 1;
@@ -201,15 +201,19 @@
       });
     });
     if (S.lvl === 2) {
-      var target = [1, 1, 2, 2, 3, 3];
-      C.companies.forEach(function (c) { if (c.startup) S.su[c.id] = { win: S.rng() < 0.4, day: 2 + Math.floor(S.rng() * 4) }; });
+      var startupDays = [2, 3, 4, 5];
+      C.companies.forEach(function (c) {
+        if (!c.startup) return;
+        var index = Math.floor(S.rng() * startupDays.length);
+        S.su[c.id] = { win: S.rng() < 0.4, day: startupDays.splice(index, 1)[0] };
+      });
       S.plan.forEach(function (d, i) {
         d.late = []; d.extra = [];
         for (var id in S.su) if (S.su[id].day === i) d.late.push(startupNews(co(id), S.su[id].win));
-        var need = (target[i] || 3) - 1 - eve(d).length;
+        var need = Math.max(0, 3 - 1 - eve(d).length);
         while (need-- > 0) {
           var cand = [];
-          ['good', 'mixed'].forEach(function (k) { (C.pools[k] ? C.pools[k].items : []).forEach(function (it) { if (!used[it.id]) cand.push(it); }); });
+          ['good', 'mixed', 'complex'].forEach(function (k) { (C.pools[k] ? C.pools[k].items : []).forEach(function (it) { if (!used[it.id]) cand.push(it); }); });
           if (!cand.length) break;
           var it = cand[Math.floor(S.rng() * cand.length)]; used[it.id] = 1; d.extra.push(it);
         }
@@ -258,8 +262,7 @@
 
   function setBar(showDots) {
     var bar = $('#bar');
-    $('#corner').innerHTML = (showDots && S) ? '<span>' + (SI[S.season] || '') + ' ' + esc(S.season) + '</span><span>' + WD[S.day % 7] +
-      (S.day % 7 > 4 ? ' · выходной' : ' · будний день') + '</span><span>Уровень ' + S.lvl + '</span>' : '';
+    $('#corner').innerHTML = (showDots && S) ? '<span>' + (SI[S.season] || '') + ' ' + esc(S.season) + '</span><span>Уровень ' + S.lvl + '</span>' : '';
     bar.classList.toggle('nodots', !showDots);
     if (!showDots || !S) { $('#dots').innerHTML = ''; return; }
     var h = '';
@@ -314,19 +317,48 @@
       }).join('') + '</section>', false);
   }
 
+  var introIndex = 0;
+  function introCard(it) {
+    return '<div class="em">' + esc(it.emoji) + '</div><h2>' + esc(it.title) + '</h2>' +
+      '<p class="intro-short">' + esc(it.short || it.text) + '</p>' +
+      '<details class="intro-more"><summary>Подробнее</summary><p>' + esc(it.detail || it.text) + '</p></details>';
+  }
+  function updateIntro(i, direction) {
+    var L = intros(), last = i === L.length - 1, card = $('#introCard');
+    introIndex = i;
+    card.innerHTML = introCard(L[i]);
+    card.classList.remove('slide-next', 'slide-prev');
+    void card.offsetWidth;
+    if (direction) card.classList.add(direction > 0 ? 'slide-next' : 'slide-prev');
+    Array.prototype.forEach.call($('#introDots').children, function (dot, k) { dot.classList.toggle('on', k === i); });
+    $('#introPrev').disabled = i === 0;
+    $('#introArrowNext').disabled = last;
+    $('#introNext').textContent = last ? 'Начинаем!' : 'Дальше';
+    $('#introSkip').hidden = last;
+  }
   function renderIntro(i) {
-    var T = C.texts, L = intros(), it = L[i], last = i === L.length - 1, dots = '';
-    for (var k = 0; k < L.length; k++) dots += '<i class="' + (k === i ? 'on' : '') + '"></i>';
-    show(
-      '<section class="screen">' +
-        '<div class="owl-row">' + owl() + '<div class="bubble">Привет! Я Сова Финя и подскажу, как устроены акции.</div></div>' +
-        '<div class="card intro-card"><div class="em">' + esc(it.emoji) + '</div><h2>' + esc(it.title) + '</h2><p>' + esc(it.text) + '</p></div>' +
-        '<div class="dotsrow"><button class="arr" data-act="introPrev" data-i="' + i + '" type="button" aria-label="Назад"' + (i ? '' : ' disabled') + '>‹</button>' + dots +
-        '<button class="arr" data-act="introNext" data-i="' + i + '" type="button" aria-label="Дальше"' + (last ? ' disabled' : '') + '>›</button></div>' +
-        '<div class="spacer"></div>' +
-        '<button class="btn primary" data-act="introNext" data-i="' + i + '" type="button">' + (last ? 'Начинаем!' : 'Дальше') + '</button>' +
-        (last ? '' : '<button class="btn ghost" data-act="introSkip" type="button">Пропустить</button>') +
-      '</section>', false);
+    var dots = '';
+    for (var k = 0; k < intros().length; k++) dots += '<i></i>';
+    show('<section class="screen intro-screen">' +
+      '<div class="owl-row">' + owl() + '<div class="bubble">Привет! Я Сова Финя и подскажу, как устроены акции.</div></div>' +
+      '<div class="card intro-card" id="introCard" aria-live="polite"></div>' +
+      '<div class="dotsrow"><button class="arr" id="introPrev" data-act="introPrev" type="button" aria-label="Назад">‹</button>' +
+      '<span id="introDots" class="intro-dots">' + dots + '</span>' +
+      '<button class="arr" id="introArrowNext" data-act="introNext" type="button" aria-label="Дальше">›</button></div>' +
+      '<div class="spacer"></div><button class="btn primary" id="introNext" data-act="introNext" type="button"></button>' +
+      '<button class="btn ghost" id="introSkip" data-act="introSkip" type="button">Пропустить</button></section>', false);
+    updateIntro(i, 0);
+  }
+
+  function renderCompanies() {
+    show('<section class="screen"><div class="daytag">Перед началом</div><h2 class="center">Компании городка</h2>' +
+      '<p class="center company-lead">Узнай, чем они занимаются. Новости помогут понять, как изменятся их цены.</p>' +
+      '<div class="company-summary">' + C.companies.map(function (c) {
+        return '<div class="summary-row"><div class="co-ic" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
+          '<div><b>' + esc(c.name) + '</b>' + (c.startup ? '<span class="startup-badge">🚀 Стартап</span>' : '') +
+          '<small>' + esc(c.desc) + '</small></div><strong>' + nf(c.price) + '</strong></div>';
+      }).join('') + '</div><div class="spacer"></div>' +
+      '<button class="btn primary" data-act="beginGame" type="button">Начать игру</button></section>', false);
   }
 
   function newsCard(n, kindClass) {
@@ -337,7 +369,24 @@
       '<div class="paper-head"><span>Городская газета</span><span>Монеткин</span></div>' +
       '<div class="news-emoji">' + esc(n.emoji || '📰') + '</div>' +
       '<span class="source ' + cls + '">' + (kindClass === 'sudden' ? '' : mark) + esc(n.source || '') + '</span>' +
-      '<h2>' + esc(n.title) + '</h2><p>' + esc(n.text || '') + '</p></article>';
+      '<h2>' + esc(n.title) + '</h2><p>' + esc(n.text || '') + '</p>' +
+      (S.lvl === 2 && n.durationDays > 1 ? '<span class="duration">Влияет ' + n.durationDays + ' дня</span>' : '') + '</article>';
+  }
+
+  function marketAdvice(hint) {
+    var news = morn(S.plan[S.day]), body = hint ? '<p>' + esc(hint) + '</p>' : '';
+    if (news.some(function (n) { return n.kind === 'rumor'; })) body += '<p>Слух ещё не подтверждён. Проверь источник, прежде чем ему доверять.</p>';
+    news.forEach(function (n) {
+      if (news.length > 1) body += '<h3>' + esc(n.title) + '</h3>';
+      Object.keys(n.effects || {}).forEach(function (id) {
+        var c = co(id), positive = n.effects[id] > 0, note = n.notes && n.notes[id];
+        if (!c || !n.effects[id]) return;
+        body += '<div class="advice-effect"><b class="' + (positive ? 'up' : 'down') + '">' +
+          (positive ? '▲ ' : '▼ ') + esc(c.name) + '</b><span>' + esc(note || (positive ? 'Спрос может вырасти.' : 'Спрос может упасть.')) + '</span></div>';
+      });
+    });
+    return '<details class="owl-help"><summary>' + owl('') + '<span>Нужна подсказка? Нажми на Сову</span><i>▾</i></summary>' +
+      '<div class="owl-help-body">' + body + '</div></details>';
   }
 
   function renderNews() {
@@ -351,7 +400,6 @@
       '<section class="screen">' +
         '<div class="daytag">День ' + (S.day + 1) + ' из ' + C.schedule.length + ' · утро</div>' +
         morn(d).map(function (n) { return newsCard(n); }).join('') +
-        '<div class="owl-row">' + owl() + '<div class="bubble">' + esc(C.texts.owl.newsAsk) + '</div></div>' +
         '<div class="spacer"></div>' +
         '<button class="btn primary" data-act="toMarket" type="button">К торгам</button>' +
       '</section>', true);
@@ -369,7 +417,8 @@
     var color = h[h.length - 1] >= h[0] ? '#0E9F6E' : '#E5484D';
     return '<div class="co" data-co="' + esc(c.id) + '">' +
       '<div class="co-ic" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
-      '<div class="co-main"><b>' + esc(c.name) + '</b><span class="desc">' + esc(c.desc) + '</span>' + (S.lvl === 2 ? '<span class="desc trust">' + (c.startup ? '🚀 Стартап · ' : '') + 'Доверие ' + '★★★★★'.slice(0, stars(c)) + '☆☆☆☆☆'.slice(0, 5 - stars(c)) + '</span>' : '') + spark(h, color) + '</div>' +
+      '<div class="co-main"><b>' + esc(c.name) + '</b>' + (c.startup ? '<span class="startup-badge">🚀 Стартап</span>' : '') +
+      '<span class="desc">' + esc(c.desc) + '</span>' + spark(h, color) + '</div>' +
       '<div class="co-px"><b>' + nf(p) + '</b><span class="chg ' + cls + '">' + (chg || 'цена') + '</span></div>' +
       '<div class="co-own"><span>' + (own ? 'У тебя: <b>' + own + ' шт.</b>' : 'У тебя пока нет акций') + '</span>' +
       '<span>' + (own ? 'стоят ' + coins(own * p) : '') + '</span></div>' +
@@ -377,6 +426,13 @@
         '<button class="mini sell" data-act="sell" data-id="' + esc(c.id) + '" type="button"' + (own ? '' : ' aria-disabled="true"') + '>Продать' + (S.lvl === 2 ? ' · ' + (p - sp(c.id)) : '') + '</button>' +
         '<button class="mini buy" data-act="buy" data-id="' + esc(c.id) + '" type="button">Купить' + (S.lvl === 2 ? ' · ' + (p + sp(c.id)) : '') + '</button>' +
       '</div></div>';
+  }
+
+  function companyList() {
+    if (S.lvl !== 2) return C.companies.map(cardHTML).join('');
+    return '<h3 class="list-heading">Обычные компании</h3>' + C.companies.filter(function (c) { return !c.startup; }).map(cardHTML).join('') +
+      '<h3 class="list-heading">🚀 Стартапы <small>цена может резко измениться</small></h3>' +
+      C.companies.filter(function (c) { return c.startup; }).map(cardHTML).join('');
   }
 
   function statsHTML() {
@@ -401,16 +457,16 @@
         '<div class="stats" id="stats">' + statsHTML() + '</div>' +
         '<button class="newsstrip" data-act="toggleNews" aria-expanded="false" type="button"><span class="e">' + esc(n.emoji || '📰') + '</span><b>' + esc(morn(d).map(function (x) { return x.title; }).join(' · ')) + '</b><i>▾</i></button>' +
         '<div class="newsmore" id="newsmore" hidden>' + morn(d).map(function (x) { return esc(x.text || '') + ' <small>(' + esc(x.source || '') + ')</small>'; }).join('<br>') + '</div>' +
-        (hint ? '<div class="owl-row">' + owl() + '<div class="bubble">' + esc(hint) + '</div></div>' : '') +
+        marketAdvice(hint) +
         '<div class="stepbar"><span>За раз, шт.:</span>' + chips + '</div>' +
-        '<div class="list" id="list">' + C.companies.map(cardHTML).join('') + '</div>' +
+        '<div class="list" id="list">' + companyList() + '</div>' +
         '<div class="dock"><button class="btn primary" data-act="endDay" type="button">Закончить день</button></div>' +
       '</section>', true);
   }
 
   function refreshMarket(flashId, dir) {
     $('#stats').innerHTML = statsHTML();
-    $('#list').innerHTML = C.companies.map(cardHTML).join('');
+    $('#list').innerHTML = companyList();
     if (flashId) {
       var el = $('[data-co="' + flashId + '"]');
       if (el) el.classList.add(dir === 'buy' ? 'flash-up' : 'flash-down');
@@ -442,13 +498,14 @@
     var holdVals = {};
     C.companies.forEach(function (c) { holdVals[c.id] = (S.shares[c.id] || 0) * old[c.id]; });
     // сила реакции рынка на новость слегка меняется от раза к разу
-    var m1 = 0.7 + 0.6 * S.rng(), m2 = 0.7 + 0.6 * S.rng(), mis = {};
+    var m1 = 0.7 + 0.6 * S.rng(), m2 = 0.7 + 0.6 * S.rng(), newsImpact = {}, activeToday = S.lvl === 2 ? S.active.slice() : [];
     function sum(list, id) { var t = 0; list.forEach(function (n) { t += (n.effects && n.effects[id]) || 0; }); return t; }
     C.companies.forEach(function (c) {
-      var e1 = sum(morn(d), c.id), e2 = sum(eve(d), c.id), e3 = 0;
+      var e1 = sum(morn(d), c.id), e2 = sum(eve(d), c.id), carry = sum(activeToday.map(function (a) { return a.news; }), c.id), e3 = 0;
       var noise = (S.rng() - 0.5) * 0.05 * (S.lvl === 2 && c.startup ? 3 : 1);
-      if (S.lvl === 2 && !c.startup && stars(c) < 4 && S.rng() < (4 - stars(c)) * 0.06) { e3 = -(0.08 + 0.06 * S.rng()); mis[c.id] = 1; }
-      S.pf[c.id] = Math.max(3, S.pf[c.id] * (1 + e1 * m1 * sens(c, e1)) * (1 + e2 * m2 * sens(c, e2)) * (1 + e3) * (1 + noise));
+      if (S.lvl === 2 && c.startup && S.rng() < 0.09) e3 = S.rng() < 0.5 ? -0.22 : 0.26;
+      newsImpact[c.id] = e1 * m1 * sens(c, e1) + e2 * m2 * sens(c, e2) + carry * sens(c, carry) + e3;
+      S.pf[c.id] = Math.max(3, S.pf[c.id] * (1 + e1 * m1 * sens(c, e1)) * (1 + e2 * m2 * sens(c, e2)) * (1 + carry * sens(c, carry)) * (1 + e3) * (1 + noise));
       S.price[c.id] = Math.max(5, Math.round(S.pf[c.id]));
       S.hist[c.id].push(S.price[c.id]);
     });
@@ -456,7 +513,10 @@
       day: S.day, flow: copy(S.flow), kind: d.morning.kind, eff: d.morning.effects || {},
       holdVals: holdVals, cashFrac: before > 0 ? S.cash / before : 1, risk: d.risk
     });
-    S.last = { before: before, after: S.cash + holdingsValue(S.price), old: old, neu: copy(S.price), d: d, owned: copy(S.shares), mis: mis };
+    S.active = S.lvl === 2 ? activeToday.filter(function (a) { a.left--; return a.left > 0; }) : [];
+    if (S.lvl === 2) morn(d).concat(eve(d)).forEach(function (n) { if (n.durationDays > 1) S.active.push({ news: n, left: n.durationDays - 1 }); });
+    S.last = { before: before, after: S.cash + holdingsValue(S.price), old: old, neu: copy(S.price), d: d, owned: copy(S.shares), newsImpact: newsImpact };
+    S.daily.push(S.last.after);
     S.flow = {};
     setTime(true, function () { if (eve(d).length) renderSudden(); else renderResult(); });
   }
@@ -470,7 +530,6 @@
       '<section class="screen sudden-wrap">' +
         '<div class="daytag">День ' + (S.day + 1) + ' из ' + C.schedule.length + ' · вечер</div>' +
         eve(d).map(function (n) { return newsCard(n, 'sudden'); }).join('') +
-        '<div class="owl-row">' + owl() + '<div class="bubble">' + esc(C.texts.owl.suddenIntro) + '</div></div>' +
         '<div class="spacer"></div>' +
         '<button class="btn primary" data-act="toResult" type="button">Посмотреть, что с ценами</button>' +
       '</section>', true);
@@ -489,18 +548,18 @@
 
     var rows = C.companies.map(function (c) {
       var o = L.old[c.id], n = L.neu[c.id], pc = Math.round((n - o) / o * 100);
-      var notes = [];
-      morn(d).concat(eve(d)).forEach(function (n) { if (n.notes && n.notes[c.id]) notes.push(n.notes[c.id]); });
-      if (L.mis && L.mis[c.id]) notes.push(C.texts.mis);
       var qty = L.owned[c.id] || 0, own = qty * (n - o);
       var k = pc > 0 ? 'up' : pc < 0 ? 'down' : 'flat';
+      var impact = L.newsImpact[c.id] || 0;
+      var badge = impact > 0 ? '<span class="news-impact positive">Положительная</span>' :
+        impact < 0 ? '<span class="news-impact negative">Отрицательная</span>' :
+        '<span class="news-impact neutral">Без новости</span>';
       return {
-        sort: notes.length ? 1000 - Math.abs(pc) : -Math.abs(pc),
+        sort: Math.abs(impact) * 1000 + Math.abs(pc),
         html: '<div class="rrow"><div class="rrow-top"><div class="ic" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
-          '<div class="nm">' + esc(c.name) + (qty ? '<span class="mine">у тебя ' + qty + ' шт.</span>' : '') + '<small>' + nf(o) + ' → ' + nf(n) + '</small></div>' +
+          '<div class="nm">' + esc(c.name) + (qty ? '<span class="mine">у тебя ' + qty + ' шт.</span>' : '') + badge + '<small>' + nf(o) + ' → ' + nf(n) + '</small></div>' +
           '<div class="pc ' + k + '">' + (pc > 0 ? '▲ +' : pc < 0 ? '▼ −' : '● ') + Math.abs(pc) + '%' +
-          (qty ? '<small>' + signed(own) + ' ' + coinWord(own) + '</small>' : '') + '</div></div>' +
-          notes.map(function (t) { return '<div class="why">' + esc(t) + '</div>'; }).join('') + '</div>'
+          (qty ? '<small>' + signed(own) + ' ' + coinWord(own) + '</small>' : '') + '</div></div></div>'
       };
     }).sort(function (a, b) { return b.sort - a.sort; });
 
@@ -574,78 +633,32 @@
     return tot;
   }
 
+  function portfolioChart(values) {
+    var low = Math.min.apply(null, values), high = Math.max.apply(null, values), range = Math.max(1, high - low);
+    var pts = values.map(function (v, i) { return [24 + i * 45, 112 - (v - low) / range * 84]; });
+    var line = pts.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+    return '<svg class="portfolio-chart" viewBox="0 0 320 146" role="img" aria-label="Стоимость портфеля по дням: ' +
+      values.map(function (v, i) { return (i ? 'день ' + i : 'старт') + ' — ' + nf(v) + ' монет'; }).join(', ') + '">' +
+      '<line x1="24" y1="112" x2="294" y2="112" stroke="#DDE2EF" stroke-width="2"/>' +
+      '<polyline points="' + line + '" fill="none" stroke="#4B55D6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>' +
+      pts.map(function (p, i) { return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="' + (i === pts.length - 1 ? 6 : 4) + '" fill="#4B55D6" stroke="#fff" stroke-width="2"/>' +
+        '<text x="' + p[0].toFixed(1) + '" y="137" text-anchor="middle">' + (i || 'С') + '</text>'; }).join('') + '</svg>';
+  }
+
   function renderFinal() {
     S.phase = 'final';
-    var F = C.texts.final, start = C.startCoins, mine = total(), dl = mine - start;
-    var singles = C.companies.map(function (c) { var a = {}; a[c.id] = start; return { c: c, v: buyHold(a) }; });
-    var eqAlloc = {}; C.companies.forEach(function (c) { eqAlloc[c.id] = start / C.companies.length; });
-    var eq = buyHold(eqAlloc);
-    var vals = singles.map(function (s) { return s.v; });
-    var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
-    var scale = Math.max(1, Math.abs(mn - start), Math.abs(mx - start), Math.abs(eq - start), Math.abs(dl));
-
-    function row(label, v, me) {
-      var d = v - start, w = Math.abs(d) / scale * 50;
-      return '<div class="crow' + (me ? ' me' : '') + '"><div class="lb">' + label + '</div><div class="tr"><div class="bar ' +
-        (d >= 0 ? 'pos' : 'neg') + '" style="width:' + w.toFixed(1) + '%"></div></div><div class="vl ' +
-        (d > 0 ? 'up' : d < 0 ? 'down' : 'flat') + '">' + signed(d) + '</div></div>';
-    }
-    var chart = '<div class="sep">Всё в одной компании</div>' +
-      singles.map(function (s) { return row(esc(s.c.emoji) + ' ' + esc(s.c.name), s.v, false); }).join('') +
-      '<div class="sep">Для сравнения</div>' +
-      row('Поровну во все', eq, false) + row('⭐ Твой портфель', mine, true);
-
-    var badges = evalBadges();
-    var title = badges.length ? badges[0].title : F.defaultTitle;
-    S.title = title; S.mine = mine;
-
-    var head = dl > 0.5 ? fill(F.plus, { n: coins(dl) }) : dl < -0.5 ? fill(F.minus, { n: coins(dl) }) : F.zero;
-    var medals = badges.length
-      ? badges.map(function (b) { return '<div class="medal"><div class="e">' + esc(b.emoji) + '</div><div><b>' + esc(b.title) + '</b><span>' + esc(b.text) + '</span></div></div>'; }).join('')
-      : '<div class="medal"><div class="e">🌱</div><div><b>' + esc(F.defaultTitle) + '</b><span>' + esc(F.defaultText) + '</span></div></div>';
-
-    show(
-      '<section class="screen">' +
-        '<div class="final-top"><div class="em">' + (dl >= 0.5 ? '🎉' : '🌟') + '</div>' +
-        '<h2>Неделя закончилась!</h2>' +
-        '<div class="card sum"><div class="from">Было ' + nf(start) + ' → стало</div><div class="big ' + (dl > 0 ? 'up' : dl < 0 ? 'down' : 'flat') + '"><span id="ft">' + nf(start) + '</span></div></div></div>' +
-        '<p class="center" style="margin-top:10px;font-weight:700">' + esc(head) + '</p>' +
-        '<div class="recap">Твои достижения</div>' + medals +
-        '<div class="card" style="margin-top:12px"><h2 style="font-size:19px">' + esc(F.chartTitle) + '</h2>' +
-        '<p style="font-size:14.5px;color:#34405E">' + esc(fill(F.chartText, { min: nf(mn), max: nf(mx), eq: nf(eq) })) + '</p>' +
-        '<div class="chart">' + chart + '</div></div>' +
-        '<div class="card" style="margin-top:12px"><h2 style="font-size:19px">Что ты теперь знаешь</h2><ul class="learn">' +
-        F.learned.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' +
-        '<p class="fine">' + esc(F.disclaimer) + '</p></div>' +
-        '<div class="dock static">' +
-          '<button class="btn primary" data-act="replay" type="button">Сыграть ещё раз</button>' +
-          '<button class="btn ghost" data-act="share" type="button">Поделиться результатом</button>' +
-          '<button class="btn ghost" data-act="finish" type="button">Закончить</button>' +
-        '</div>' +
-      '</section>', false);
-
-    animateNum($('#ft'), start, mine, 900, nf);
+    var F = C.texts.final, mine = total(), pct = (mine - C.startCoins) / C.startCoins * 100;
+    show('<section class="screen final-screen"><div class="final-top"><div class="em">' + (pct >= 0 ? '🎉' : '🌟') + '</div><h2>Итоги игры</h2></div>' +
+      '<div class="card final-metric"><span>Общая доходность</span><strong class="' + (pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat') + '">' +
+      (pct > 0 ? '+' : '') + pct.toFixed(1).replace('.', ',') + '%</strong><small>' + nf(C.startCoins) + ' → ' + nf(mine) + ' монет</small>' +
+      '<p>Сколько процентов ты заработал или потерял за год.</p></div>' +
+      '<div class="card final-chart"><h2>Стоимость портфеля по дням</h2>' + portfolioChart(S.daily) + '</div>' +
+      '<div class="card final-learn"><h2>Что ты теперь знаешь</h2><ul class="learn">' +
+      F.learned.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>' +
+      '<div class="dock static"><button class="btn primary" data-act="replay" type="button">Закончить</button></div></section>', false);
     play('win');
     bridge.send('VIBRATION_EVENT');
     if (!completedSent) { completedSent = true; bridge.send('COMPLETED_EVENT'); }
-  }
-
-  function shareImage(text) {
-    try {
-      var cv = document.createElement('canvas'); cv.width = 720; cv.height = 378;
-      var x = cv.getContext('2d');
-      var g = x.createLinearGradient(0, 0, 0, 378); g.addColorStop(0, '#FFF3D6'); g.addColorStop(1, '#E3F2FF');
-      x.fillStyle = g; x.fillRect(0, 0, 720, 378);
-      x.fillStyle = '#4B55D6'; x.fillRect(0, 0, 720, 14);
-      x.font = '84px sans-serif'; x.textBaseline = 'top'; x.fillText('🦉', 36, 40);
-      x.fillStyle = '#1F2A44'; x.font = 'bold 40px sans-serif'; x.fillText('Юный инвестор', 150, 52);
-      x.font = 'bold 72px sans-serif'; x.fillStyle = S.mine >= C.startCoins ? '#0E9F6E' : '#E5484D';
-      x.fillText(nf(C.startCoins) + ' → ' + nf(S.mine), 36, 160);
-      x.fillStyle = '#1F2A44'; x.font = '600 32px sans-serif';
-      x.fillText('Мой титул: ' + S.title, 36, 262);
-      x.fillStyle = '#5E6A85'; x.font = '24px sans-serif'; x.fillText('Учебные монеты — ненастоящие', 36, 320);
-      return cv.toDataURL('image/png');
-    } catch (e) { return ''; }
   }
 
   /* ---------- события ---------- */
@@ -659,13 +672,13 @@
         contentPromise.then(function (c) { C = c; renderLevel(); });
         break;
       case 'introNext': {
-        var i = parseInt(t.getAttribute('data-i'), 10);
-        if (i + 1 < intros().length) renderIntro(i + 1); else renderNews();
+        if (introIndex + 1 < intros().length) updateIntro(introIndex + 1, 1); else renderCompanies();
         play('tap'); break;
       }
-      case 'introPrev': renderIntro(Math.max(0, parseInt(t.getAttribute('data-i'), 10) - 1)); break;
+      case 'introPrev': if (introIndex > 0) updateIntro(introIndex - 1, -1); play('tap'); break;
       case 'level': newRun(parseInt(t.getAttribute('data-v'), 10)); renderIntro(0); break;
-      case 'introSkip': renderNews(); break;
+      case 'introSkip': renderCompanies(); break;
+      case 'beginGame': renderNews(); break;
       case 'toMarket': play('tap'); renderMarket(); break;
       case 'toggleNews': {
         var more = $('#newsmore'), open = more.hidden;
@@ -688,12 +701,6 @@
         setTime(false, function () { if (S.day >= C.schedule.length - 1) renderFinal(); else { S.day++; renderNews(); } });
         break;
       case 'replay': renderLevel(); break;
-      case 'share': {
-        var text = fill(C.texts.final.shareText, { n: coins(S.mine), title: S.title });
-        bridge.send('SHARING_EVENT', { text: text, image: shareImage(text) });
-        break;
-      }
-      case 'finish': bridge.send('FINISH_EVENT'); break;
     }
   }
 
