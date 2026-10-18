@@ -178,17 +178,22 @@
   }
   function applySeason(d) {
     if (S.lvl !== 2 || !d.seasonEvent || d.seasonApplied) return;
-    d.seasonBefore = copy(S.price);
-    d.seasonOwned = copy(S.shares);
+    var initial = S.day === 0, previous = copy(S.price);
+    if (!initial) {
+      d.seasonBefore = previous;
+      d.seasonOwned = copy(S.shares);
+    }
     d.seasonContributions = {};
     var before = total();
     C.companies.forEach(function (c) {
       var effect = d.seasonEvent.effects[c.id] || 0;
       S.pf[c.id] = Math.max(3, S.pf[c.id] * (1 + effect));
       S.price[c.id] = Math.max(5, Math.round(S.pf[c.id]));
-      d.seasonContributions[c.id] = (S.shares[c.id] || 0) * (S.price[c.id] - d.seasonBefore[c.id]);
+      // Первый сезон задаёт стартовую цену, а не изменение до начала игры.
+      if (initial) S.hist[c.id] = [S.price[c.id]];
+      d.seasonContributions[c.id] = initial ? 0 : (S.shares[c.id] || 0) * (S.price[c.id] - previous[c.id]);
     });
-    d.seasonPortfolioChange = total() - before;
+    d.seasonPortfolioChange = initial ? 0 : total() - before;
     d.seasonApplied = true;
   }
   function startupNews(c, win) {
@@ -357,6 +362,10 @@
   }
 
   /* ---------- экраны ---------- */
+  function backButton(action) {
+    return '<button class="back-btn" data-act="' + action + '" type="button"><span aria-hidden="true">‹</span> Назад</button>';
+  }
+
   function renderStart() {
     var T = (C || window.__DEFAULT_CONTENT).texts;
     show(
@@ -364,7 +373,7 @@
         '<div class="hero">' + mascot() + '</div>' +
         '<h1>' + esc(T.title) + '</h1>' +
         '<p class="lead">' + esc(T.tagline) + '</p>' +
-        '<ul class="facts"><li>⏱ Одна игра — 3–5 минут</li><li>🪙 1000 учебных монет, ничего настоящего</li>' +
+        '<ul class="facts"><li>⏱ Одна игра — 3–5 минут</li><li>🪙 1000 учебных монет, действуй смело!</li>' +
         '<li>📰 Каждый день — новость, которая двигает цены</li></ul>' +
         '<div class="spacer"></div>' +
         '<button class="btn primary big" data-act="start" type="button">Играть</button>' +
@@ -372,10 +381,10 @@
   }
 
   var selectedLevel = null;
-  function renderLevel() {
+  function renderLevel(restoreLevel) {
     selectedLevel = null;
     if (!C.texts.levels) { newRun(1); renderIntro(0); return; }
-    show('<section class="screen"><h2 class="center" style="margin-top:14px">Выбери уровень</h2>' +
+    show('<section class="screen">' + backButton('backToStart') + '<h2 class="center" style="margin-top:14px">Выбери уровень</h2>' +
       C.texts.levels.map(function (l) {
         return '<button class="card lvl" data-act="level" data-v="' + l.id + '" aria-pressed="false" type="button"><div class="em">' + esc(l.emoji) +
           '</div><div><b>' + esc(l.title) + '</b><span>' + esc(l.text) + '</span></div></button>';
@@ -383,6 +392,7 @@
       '<button class="btn primary" data-act="beginRun" data-training="true" type="button" disabled>Пройти обучение</button>' +
       '<button class="btn secondary" data-act="beginRun" data-training="false" type="button" disabled>Играть без обучения</button>' +
       '</div></section>', false);
+    if (C.texts.levels.some(function (l) { return l.id === restoreLevel; })) selectLevel(restoreLevel);
   }
 
   function selectLevel(id) {
@@ -419,6 +429,7 @@
     var dots = '';
     for (var k = 0; k < intros().length; k++) dots += '<i></i>';
     show('<section class="screen intro-screen">' +
+      backButton('introBack') +
       '<div class="mascot-row">' + mascot() + '<div class="bubble">Привет! Я свинка Финя и помогу разобраться, как устроены акции.</div></div>' +
       '<div class="card intro-card" id="introCard" aria-live="polite"></div>' +
       '<div class="dotsrow"><button class="arr" id="introPrev" data-act="introPrev" type="button" aria-label="Назад">‹</button>' +
@@ -430,7 +441,7 @@
   }
 
   function renderCompanies() {
-    show('<section class="screen"><div class="daytag">Перед началом</div><h2 class="center">Компании городка</h2>' +
+    show('<section class="screen">' + backButton('backToIntro') + '<div class="daytag">Перед началом</div><h2 class="center">Компании городка</h2>' +
       '<p class="center company-lead">Узнай, чем занимаются компании.</p>' +
       '<div class="company-summary">' + C.companies.map(function (c) {
         return '<div class="summary-row"><div class="summary-icon" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
@@ -636,7 +647,7 @@
     }
     morn(d).concat(eve(d)).forEach(function (n) { recordReason(n, false); });
     activeToday.forEach(function (a) { recordReason(a.news, true); });
-    if (d.seasonEvent) recordReason(d.seasonEvent, false);
+    if (S.day > 0 && d.seasonEvent) recordReason(d.seasonEvent, false);
     // Слабые колебания — максимум у двух компаний без влияющих на них новостей.
     var noiseMoves = {}, noiseIds = [], noiseCandidates = C.companies.filter(function (c) {
       return !reasons[c.id] && Math.floor(S.price[c.id] * 0.025) >= 1;
@@ -650,7 +661,7 @@
     }
     C.companies.forEach(function (c) {
       var e1 = sum(morn(d), c.id), e2 = sum(eve(d), c.id), carry = sum(activeToday.map(function (a) { return a.news; }), c.id), e3 = 0;
-      var seasonEffect = d.seasonEvent ? (d.seasonEvent.effects[c.id] || 0) : 0;
+      var seasonEffect = S.day > 0 && d.seasonEvent ? (d.seasonEvent.effects[c.id] || 0) : 0;
       if (S.lvl === 2 && c.startup && S.rng() < 0.09) {
         e3 = S.rng() < 0.5 ? -0.22 : 0.26;
         if (!reasons[c.id]) reasons[c.id] = [];
@@ -842,6 +853,9 @@
         t.textContent = 'Загрузка…';
         contentPromise.then(function (c) { C = c; renderLevel(); });
         break;
+      case 'backToStart': renderStart(); play('tap'); break;
+      case 'introBack': renderLevel(S.lvl); break;
+      case 'backToIntro': renderIntro(introIndex); play('tap'); break;
       case 'introNext': {
         if (introIndex + 1 < intros().length) updateIntro(introIndex + 1, 1); else renderCompanies();
         play('tap'); break;
@@ -851,7 +865,7 @@
       case 'beginRun':
         if (selectedLevel == null) break;
         newRun(selectedLevel);
-        if (t.getAttribute('data-training') === 'true') renderIntro(0); else renderCompanies();
+        if (t.getAttribute('data-training') === 'true') renderIntro(0); else renderNews();
         break;
       case 'introSkip': renderCompanies(); break;
       case 'beginGame': renderNews(); break;
@@ -894,7 +908,6 @@
   function boot() {
     view = $('#view');
     view.addEventListener('click', onClick);
-    $('#btnClose').addEventListener('click', function () { bridge.send('FINISH_EVENT'); bridge.send('CLOSE_EVENT'); });
     $('#btnSound').addEventListener('click', toggleSound);
     contentPromise = loadContent();
     renderStart();
