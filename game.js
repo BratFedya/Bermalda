@@ -283,22 +283,9 @@
   }
 
   /* ---------- графика ---------- */
-  function owl(cls) {
-    return '<svg class="' + (cls || '') + '" viewBox="0 0 80 80" role="img" aria-label="Сова Финя">' +
-      '<ellipse cx="16" cy="52" rx="7" ry="14" transform="rotate(-14 16 52)" fill="#4651D1"/>' +
-      '<ellipse cx="64" cy="52" rx="7" ry="14" transform="rotate(14 64 52)" fill="#4651D1"/>' +
-      '<path d="M17 28 L21 9 L33 22 Z" fill="#4651D1"/><path d="M63 28 L59 9 L47 22 Z" fill="#4651D1"/>' +
-      '<ellipse cx="40" cy="46" rx="26" ry="28" fill="#5B67E8"/>' +
-      '<ellipse cx="40" cy="56" rx="16" ry="17" fill="#DDE2FF"/>' +
-      '<circle cx="30" cy="36" r="10" fill="#fff"/><circle cx="50" cy="36" r="10" fill="#fff"/>' +
-      '<circle cx="31" cy="37" r="4.6" fill="#1F2A44"/><circle cx="49" cy="37" r="4.6" fill="#1F2A44"/>' +
-      '<circle cx="32.6" cy="35.4" r="1.5" fill="#fff"/><circle cx="50.6" cy="35.4" r="1.5" fill="#fff"/>' +
-      '<circle cx="30" cy="36" r="11.5" fill="none" stroke="#FFC83D" stroke-width="2.4"/>' +
-      '<circle cx="50" cy="36" r="11.5" fill="none" stroke="#FFC83D" stroke-width="2.4"/>' +
-      '<path d="M41.5 36 h-3" stroke="#FFC83D" stroke-width="2.4" stroke-linecap="round"/>' +
-      '<path d="M36 43 L44 43 L40 50 Z" fill="#FFB300"/>' +
-      '<ellipse cx="32" cy="75" rx="6" ry="3" fill="#FF9F1C"/><ellipse cx="48" cy="75" rx="6" ry="3" fill="#FF9F1C"/>' +
-      '</svg>';
+  function mascot(cls) {
+    return '<img class="mascot' + (cls ? ' ' + esc(cls) : '') + '" src="assets/svinka1.svg" ' +
+      'width="80" height="80" alt="Свинка Финя" draggable="false">';
   }
   function spark(h, color) {
     var w = 70, hh = 20, mn = Math.min.apply(null, h), mx = Math.max.apply(null, h);
@@ -359,7 +346,7 @@
     var T = (C || window.__DEFAULT_CONTENT).texts;
     show(
       '<section class="screen start">' +
-        '<div class="hero">' + owl() + '</div>' +
+        '<div class="hero">' + mascot() + '</div>' +
         '<h1>' + esc(T.title) + '</h1>' +
         '<p class="lead">' + esc(T.tagline) + '</p>' +
         '<ul class="facts"><li>⏱ Одна игра — 3–5 минут</li><li>🪙 1000 учебных монет, ничего настоящего</li>' +
@@ -401,7 +388,7 @@
     var dots = '';
     for (var k = 0; k < intros().length; k++) dots += '<i></i>';
     show('<section class="screen intro-screen">' +
-      '<div class="owl-row">' + owl() + '<div class="bubble">Привет! Я Сова Финя и подскажу, как устроены акции.</div></div>' +
+      '<div class="mascot-row">' + mascot() + '<div class="bubble">Привет! Я свинка Финя и помогу разобраться, как устроены акции.</div></div>' +
       '<div class="card intro-card" id="introCard" aria-live="polite"></div>' +
       '<div class="dotsrow"><button class="arr" id="introPrev" data-act="introPrev" type="button" aria-label="Назад">‹</button>' +
       '<span id="introDots" class="intro-dots">' + dots + '</span>' +
@@ -460,8 +447,8 @@
       return '<p class="advice-note">' + esc(n.hint ||
         'Кому это событие добавит покупателей, а кому — расходов? Подумай, какие компании с ним связаны.') + '</p>';
     }).join('');
-    return '<details class="owl-help"><summary>' + owl('') + '<span>Нужна подсказка? Нажми на Сову</span><i>▾</i></summary>' +
-      '<div class="owl-help-body">' + body + '</div></details>';
+    return '<details class="mascot-help"><summary>' + mascot() + '<span>Нужна подсказка? Нажми на Финю</span><i>▾</i></summary>' +
+      '<div class="mascot-help-body">' + body + '</div></details>';
   }
 
   function renderNews() {
@@ -699,7 +686,7 @@
         '<div class="card sum"><div class="from">Было ' + nf(L.before) + '</div>' +
         '<div class="big ' + cls + '"><span id="tot">' + nf(L.before) + '</span></div>' +
         '<div class="' + cls + '" style="font-weight:800" id="dl">&nbsp;</div></div>' +
-        '<div class="owl-row">' + owl() + '<div class="bubble">' + esc(msg) + '</div></div>' +
+        '<div class="mascot-row">' + mascot() + '<div class="bubble">' + esc(msg) + '</div></div>' +
         '<div class="recap">' + recap + '</div>' +
         (L.noiseIds.length ? '<p class="market-note">Цены компаний иногда слегка колеблются без видимых причин. Сегодня это: ' +
           L.noiseIds.map(function (id) { return '«' + esc(co(id).name) + '»'; }).join(', ') + '.</p>' : '') +

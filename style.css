@@ -61,8 +61,9 @@ p{margin:0 0 10px}
 .btn.big{font-size:20px;min-height:58px}
 
 /* hero / start */
+.mascot{display:block;object-fit:contain;pointer-events:none}
 .hero{display:flex;justify-content:center;margin-top:6px}
-.hero svg{width:150px;height:150px;filter:drop-shadow(0 10px 14px rgba(75,85,214,.25));animation:float 3.2s ease-in-out infinite}
+.hero .mascot{width:150px;height:150px;filter:drop-shadow(0 10px 14px rgba(75,85,214,.25));animation:float 3.2s ease-in-out infinite}
 @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
 .facts{list-style:none;padding:0;margin:4px 0 14px;display:grid;gap:8px}
 .facts li{background:var(--card);border-radius:14px;padding:10px 14px;box-shadow:0 2px 10px rgba(31,42,68,.06);font-weight:600}
@@ -96,9 +97,9 @@ p{margin:0 0 10px}
 .dotsrow i{width:8px;height:8px;border-radius:50%;background:rgba(31,42,68,.16);margin:0 3px}
 .dotsrow i.on{background:var(--accent)}
 
-/* owl bubble */
-.owl-row{display:flex;align-items:flex-end;margin:12px 0}
-.owl-row svg{width:58px;height:58px;flex:0 0 58px}
+/* помощник и его реплика */
+.mascot-row{display:flex;align-items:flex-end;margin:12px 0}
+.mascot-row .mascot{width:58px;height:58px;flex:0 0 58px}
 .bubble{
   position:relative;margin-left:10px;background:var(--accent-soft);color:#2A2F7A;border-radius:18px 18px 18px 6px;
   padding:10px 14px;font-weight:600;font-size:15px;line-height:1.35;
@@ -132,17 +133,17 @@ p{margin:0 0 10px}
 .long-news small{display:block;font-size:12px;font-weight:800;color:#6151A3;margin:5px 0 3px}
 .long-news .long-news-companies{font-size:12px;line-height:1.3;color:var(--muted);margin:0}
 .empty-events{font-size:13px;color:var(--muted);margin:0}
-.owl-help{background:var(--accent-soft);border-radius:18px;margin:12px 0;color:#2A2F7A}
-.owl-help summary{display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 12px;font-weight:800;list-style:none}
-.owl-help summary::-webkit-details-marker{display:none}
-.owl-help summary svg{width:52px;height:52px;flex:none}
-.owl-help summary span{flex:1}
-.owl-help summary i{font-style:normal;transition:transform .2s}
-.owl-help[open] summary i{transform:rotate(180deg)}
-.owl-help-body{padding:0 14px 12px;font-size:14px}
-.owl-help-body p{margin:0 0 8px}
-.owl-help-body .advice-note{margin:0;line-height:1.5}
-.owl-help-body .advice-note + .advice-note{border-top:1px solid rgba(75,85,214,.15);padding-top:10px;margin-top:10px}
+.mascot-help{background:var(--accent-soft);border-radius:18px;margin:12px 0;color:#2A2F7A}
+.mascot-help summary{display:flex;align-items:center;gap:10px;cursor:pointer;padding:8px 12px;font-weight:800;list-style:none}
+.mascot-help summary::-webkit-details-marker{display:none}
+.mascot-help summary .mascot{width:52px;height:52px;flex:none}
+.mascot-help summary span{flex:1}
+.mascot-help summary i{font-style:normal;transition:transform .2s}
+.mascot-help[open] summary i{transform:rotate(180deg)}
+.mascot-help-body{padding:0 14px 12px;font-size:14px}
+.mascot-help-body p{margin:0 0 8px}
+.mascot-help-body .advice-note{margin:0;line-height:1.5}
+.mascot-help-body .advice-note + .advice-note{border-top:1px solid rgba(75,85,214,.15);padding-top:10px;margin-top:10px}
 
 /* stats */
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
@@ -278,7 +279,7 @@ p{margin:0 0 10px}
 button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
 @media (max-height:520px){
-  .hero svg{width:90px;height:90px}
+  .hero .mascot{width:90px;height:90px}
   h1{font-size:24px}
   .news-emoji{font-size:40px}
 }
