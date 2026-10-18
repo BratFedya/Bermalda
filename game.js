@@ -371,13 +371,29 @@
       '</section>', false);
   }
 
+  var selectedLevel = null;
   function renderLevel() {
+    selectedLevel = null;
     if (!C.texts.levels) { newRun(1); renderIntro(0); return; }
     show('<section class="screen"><h2 class="center" style="margin-top:14px">Выбери уровень</h2>' +
       C.texts.levels.map(function (l) {
-        return '<button class="card lvl" data-act="level" data-v="' + l.id + '" type="button"><div class="em">' + esc(l.emoji) +
+        return '<button class="card lvl" data-act="level" data-v="' + l.id + '" aria-pressed="false" type="button"><div class="em">' + esc(l.emoji) +
           '</div><div><b>' + esc(l.title) + '</b><span>' + esc(l.text) + '</span></div></button>';
-      }).join('') + '</section>', false);
+      }).join('') + '<div class="spacer"></div><div class="level-actions">' +
+      '<button class="btn primary" data-act="beginRun" data-training="true" type="button" disabled>Пройти обучение</button>' +
+      '<button class="btn secondary" data-act="beginRun" data-training="false" type="button" disabled>Играть без обучения</button>' +
+      '</div></section>', false);
+  }
+
+  function selectLevel(id) {
+    selectedLevel = id;
+    Array.prototype.forEach.call(view.querySelectorAll('.lvl'), function (button) {
+      button.setAttribute('aria-pressed', parseInt(button.getAttribute('data-v'), 10) === id ? 'true' : 'false');
+    });
+    Array.prototype.forEach.call(view.querySelectorAll('[data-act="beginRun"]'), function (button) {
+      button.disabled = false;
+    });
+    play('tap');
   }
 
   var introIndex = 0;
@@ -449,6 +465,23 @@
       '<div class="news-emoji">' + esc(n.emoji || '📰') + '</div>' +
       '<h2>' + esc(n.title) + '</h2><p>' + esc(n.text || '') + '</p>' +
       (S.lvl === 2 && n.durationDays > 1 ? '<span class="duration">Влияет ' + n.durationDays + ' дня</span>' : '') + '</article>';
+  }
+
+  function newsKindHTML(n) {
+    var rumor = n.kind === 'rumor';
+    return '<span class="news-kind ' + (rumor ? 'rumor' : 'official') + '">' + (rumor ? 'Слух' : 'Официально') + '</span>';
+  }
+
+  function marketNewsHTML(d) {
+    var news = morn(d);
+    return '<button class="newsstrip" data-act="toggleNews" aria-expanded="false" aria-controls="newsmore" type="button">' +
+      '<span class="newsstrip-items">' + news.map(function (n) {
+        return '<span class="newsstrip-item"><span class="e" aria-hidden="true">' + esc(n.emoji || '📰') + '</span>' +
+          '<span class="newsstrip-copy">' + newsKindHTML(n) + '<b>' + esc(n.title) + '</b></span></span>';
+      }).join('') + '</span><i aria-hidden="true">▾</i></button>' +
+      '<div class="newsmore" id="newsmore" hidden>' + news.map(function (n) {
+        return '<div class="news-detail">' + newsKindHTML(n) + '<p>' + esc(n.text || '') + '</p></div>';
+      }).join('') + '</div>';
   }
 
   function marketAdvice() {
@@ -530,7 +563,7 @@
   function renderMarket() {
     S.phase = 'market';
     S.flow = {};
-    var d = S.plan[S.day], n = d.morning;
+    var d = S.plan[S.day];
     var steps = [1, 5, 10, 'all'];
     var chips = steps.map(function (v) {
       return '<button class="chip" data-act="step" data-v="' + v + '" aria-pressed="' + (S.step === v) + '" type="button">' + (v === 'all' ? 'Все' : v) + '</button>';
@@ -538,8 +571,7 @@
     show(
       '<section class="screen market">' +
         '<div class="stats" id="stats">' + statsHTML() + '</div>' +
-        '<button class="newsstrip" data-act="toggleNews" aria-expanded="false" type="button"><span class="e">' + esc(n.emoji || '📰') + '</span><b>' + esc(morn(d).map(function (x) { return x.title; }).join(' · ')) + '</b><i>▾</i></button>' +
-        '<div class="newsmore" id="newsmore" hidden>' + morn(d).map(function (x) { return esc(x.text || ''); }).join('<br>') + '</div>' +
+        marketNewsHTML(d) +
         seasonAnnouncement(d) + longNewsHTML(d) +
         marketAdvice() +
         '<div class="stepbar"><span>За раз, шт.:</span>' + chips + '</div>' +
@@ -803,7 +835,7 @@
   /* ---------- события ---------- */
   function onClick(e) {
     var t = e.target.closest('[data-act]');
-    if (!t) return;
+    if (!t || t.disabled) return;
     var act = t.getAttribute('data-act');
     switch (act) {
       case 'start':
@@ -815,7 +847,12 @@
         play('tap'); break;
       }
       case 'introPrev': if (introIndex > 0) updateIntro(introIndex - 1, -1); play('tap'); break;
-      case 'level': newRun(parseInt(t.getAttribute('data-v'), 10)); renderIntro(0); break;
+      case 'level': selectLevel(parseInt(t.getAttribute('data-v'), 10)); break;
+      case 'beginRun':
+        if (selectedLevel == null) break;
+        newRun(selectedLevel);
+        if (t.getAttribute('data-training') === 'true') renderIntro(0); else renderCompanies();
+        break;
       case 'introSkip': renderCompanies(); break;
       case 'beginGame': renderNews(); break;
       case 'toMarket': play('tap'); renderMarket(); break;
