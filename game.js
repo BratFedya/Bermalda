@@ -176,6 +176,21 @@
       title: previous ? 'Смена сезона: ' + previous + ' → ' + name : 'Первый сезон — ' + name.toLowerCase(),
       text: data.text, hint: data.hint, effects: effects, notes: notes };
   }
+  function applySeason(d) {
+    if (S.lvl !== 2 || !d.seasonEvent || d.seasonApplied) return;
+    d.seasonBefore = copy(S.price);
+    d.seasonOwned = copy(S.shares);
+    d.seasonContributions = {};
+    var before = total();
+    C.companies.forEach(function (c) {
+      var effect = d.seasonEvent.effects[c.id] || 0;
+      S.pf[c.id] = Math.max(3, S.pf[c.id] * (1 + effect));
+      S.price[c.id] = Math.max(5, Math.round(S.pf[c.id]));
+      d.seasonContributions[c.id] = (S.shares[c.id] || 0) * (S.price[c.id] - d.seasonBefore[c.id]);
+    });
+    d.seasonPortfolioChange = total() - before;
+    d.seasonApplied = true;
+  }
   function startupNews(c, win) {
     var X = C.texts.startup[win ? 'win' : 'fail'], e = {}, n = {};
     e[c.id] = win ? 0.5 : -0.3; n[c.id] = X.note;
@@ -412,7 +427,7 @@
   function seasonAnnouncement(d) {
     if (!d.seasonEvent) return '';
     return '<aside class="season-announcement"><b>' + esc(d.seasonEvent.emoji) + ' ' + esc(d.seasonEvent.title) + '</b>' +
-      '<p>' + esc(d.seasonEvent.text) + '</p><small>Сезонное изменение цен произойдёт сегодня вечером. Сезон длится три дня.</small></aside>';
+      '<p>' + esc(d.seasonEvent.text) + '</p></aside>';
   }
 
   function longNewsHTML(d) {
@@ -430,18 +445,14 @@
   }
 
   function newsCard(n, kindClass) {
-    var cls = n.kind === 'rumor' ? 'rumor' : '';
-    if (kindClass) cls += ' ' + kindClass;
-    var mark = n.kind === 'rumor' ? '❓ ' : '✔ ';
     return '<article class="paper ' + (kindClass || '') + '">' +
-      '<div class="paper-head"><span>Городская газета</span><span>Монеткин</span></div>' +
       '<div class="news-emoji">' + esc(n.emoji || '📰') + '</div>' +
-      '<span class="source ' + cls + '">' + (kindClass === 'sudden' ? '' : mark) + esc(n.source || '') + '</span>' +
       '<h2>' + esc(n.title) + '</h2><p>' + esc(n.text || '') + '</p>' +
       (S.lvl === 2 && n.durationDays > 1 ? '<span class="duration">Влияет ' + n.durationDays + ' дня</span>' : '') + '</article>';
   }
 
   function marketAdvice() {
+    if (S.lvl !== 1) return '';
     var d = S.plan[S.day], news = (d.seasonEvent ? [d.seasonEvent] : []).concat(morn(d));
     var body = news.map(function (n) {
       return '<p class="advice-note">' + esc(n.hint ||
@@ -455,6 +466,7 @@
     S.phase = 'news';
     var d = S.plan[S.day];
     S.season = d.season;
+    applySeason(d);
     document.body.setAttribute('data-s', S.season);
     play('news');
     show(
@@ -469,6 +481,9 @@
 
   function cardHTML(c) {
     var p = S.price[c.id], h = S.hist[c.id], prev = h.length > 1 ? h[h.length - 2] : null;
+    var d = S.plan[S.day];
+    if (d.seasonBefore && d.seasonEvent.effects[c.id]) prev = d.seasonBefore[c.id];
+    if (h[h.length - 1] !== p) h = h.concat(p);
     var own = S.shares[c.id] || 0;
     var chg = '', cls = 'flat';
     if (prev != null) {
@@ -480,20 +495,21 @@
     var infoOpen = !!S.infoOpen[c.id];
     return '<div class="co' + (infoOpen ? ' info-open' : '') + '" data-co="' + esc(c.id) + '">' +
       '<div class="co-ic" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
-      '<div class="co-main"><div class="co-heading"><b>' + esc(c.name) + '</b>' +
+      '<div class="co-main"><b>' + esc(c.name) + '</b>' +
+      (c.startup ? '<span class="startup-badge">🚀 Стартап</span>' : '') +
+      '<span class="desc">' + esc(c.desc) + '</span>' +
+      (S.day > 0 || chg ? '<div class="co-trend">' + (S.day > 0 ? spark(h, color) : '') +
+        (chg ? '<span class="co-chg ' + cls + '">' + chg + '</span>' : '') + '</div>' : '') + '</div>' +
       (c.seasonInfo ? '<button class="company-info-btn" data-act="companyInfo" data-id="' + esc(c.id) +
         '" type="button" aria-label="Справка о компании «' + esc(c.name) + '»" aria-expanded="' + infoOpen +
-        '" aria-controls="company-info-' + esc(c.id) + '">i</button>' : '') + '</div>' +
-      (c.startup ? '<span class="startup-badge">🚀 Стартап</span>' : '') +
-      '<span class="desc">' + esc(c.desc) + '</span>' + spark(h, color) + '</div>' +
-      '<div class="co-px"><b>' + nf(p) + '</b><span class="chg ' + cls + '">' + (chg || 'цена') + '</span></div>' +
+        '" aria-controls="company-info-' + esc(c.id) + '">i</button>' : '') +
       (c.seasonInfo ? '<div class="company-info-panel" id="company-info-' + esc(c.id) + '"' +
         (infoOpen ? '' : ' hidden') + '><p>' + esc(c.seasonInfo) + '</p></div>' : '') +
       '<div class="co-own"><span>' + (own ? 'У тебя: <b>' + own + ' шт.</b>' : 'У тебя пока нет акций') + '</span>' +
       '<span>' + (own ? 'стоят ' + coins(own * p) : '') + '</span></div>' +
       '<div class="co-btns">' +
-        '<button class="mini sell" data-act="sell" data-id="' + esc(c.id) + '" type="button"' + (own ? '' : ' aria-disabled="true"') + '>Продать' + (S.lvl === 2 ? ' · ' + (p - sp(c.id)) : '') + '</button>' +
-        '<button class="mini buy" data-act="buy" data-id="' + esc(c.id) + '" type="button">Купить' + (S.lvl === 2 ? ' · ' + (p + sp(c.id)) : '') + '</button>' +
+        '<button class="mini sell" data-act="sell" data-id="' + esc(c.id) + '" type="button"' + (own ? '' : ' aria-disabled="true"') + '>Продать · ' + nf(p - sp(c.id)) + '</button>' +
+        '<button class="mini buy" data-act="buy" data-id="' + esc(c.id) + '" type="button">Купить · ' + nf(p + sp(c.id)) + '</button>' +
       '</div></div>';
   }
 
@@ -507,7 +523,7 @@
   function statsHTML() {
     var t = total(), dl = t - C.startCoins;
     return '<div class="stat"><span>Свободные монеты</span><b><i class="coin"></i>' + nf(S.cash) + '</b></div>' +
-      '<div class="stat"><span>Всего с акциями</span><b>' + nf(t) +
+      '<div class="stat"><span>Стоимость портфеля</span><b>' + nf(t) +
       (dl ? '<small class="' + (dl > 0 ? 'up' : 'down') + '">' + signed(dl) + '</small>' : '') + '</b></div>';
   }
 
@@ -523,7 +539,7 @@
       '<section class="screen market">' +
         '<div class="stats" id="stats">' + statsHTML() + '</div>' +
         '<button class="newsstrip" data-act="toggleNews" aria-expanded="false" type="button"><span class="e">' + esc(n.emoji || '📰') + '</span><b>' + esc(morn(d).map(function (x) { return x.title; }).join(' · ')) + '</b><i>▾</i></button>' +
-        '<div class="newsmore" id="newsmore" hidden>' + morn(d).map(function (x) { return esc(x.text || '') + ' <small>(' + esc(x.source || '') + ')</small>'; }).join('<br>') + '</div>' +
+        '<div class="newsmore" id="newsmore" hidden>' + morn(d).map(function (x) { return esc(x.text || ''); }).join('<br>') + '</div>' +
         seasonAnnouncement(d) + longNewsHTML(d) +
         marketAdvice() +
         '<div class="stepbar"><span>За раз, шт.:</span>' + chips + '</div>' +
@@ -570,10 +586,11 @@
   }
 
   function endDay() {
-    var d = S.plan[S.day], old = copy(S.price);
-    var holdOld = holdingsValue(old), before = S.cash + holdOld;
+    var d = S.plan[S.day], eveningOld = copy(S.price), old = d.seasonBefore || eveningOld;
+    var tradingTotal = S.cash + holdingsValue(eveningOld);
+    var before = tradingTotal - (d.seasonPortfolioChange || 0);
     var holdVals = {};
-    C.companies.forEach(function (c) { holdVals[c.id] = (S.shares[c.id] || 0) * old[c.id]; });
+    C.companies.forEach(function (c) { holdVals[c.id] = (S.shares[c.id] || 0) * eveningOld[c.id]; });
     // сила реакции рынка на новость слегка меняется от раза к разу
     var m1 = 0.7 + 0.6 * S.rng(), m2 = 0.7 + 0.6 * S.rng(), newsImpact = {}, reasons = {}, activeToday = S.lvl === 2 ? S.active.slice() : [];
     function sum(list, id) { var t = 0; list.forEach(function (n) { t += (n.effects && n.effects[id]) || 0; }); return t; }
@@ -610,7 +627,7 @@
           'Отмена заказов → у стартапа меньше доходов → цена падает' });
       }
       newsImpact[c.id] = e1 * m1 * sens(c, e1) + e2 * m2 * sens(c, e2) + carry * sens(c, carry) + e3 + seasonEffect;
-      S.pf[c.id] = Math.max(3, S.pf[c.id] * (1 + e1 * m1 * sens(c, e1)) * (1 + e2 * m2 * sens(c, e2)) * (1 + carry * sens(c, carry)) * (1 + e3) * (1 + seasonEffect));
+      S.pf[c.id] = Math.max(3, S.pf[c.id] * (1 + e1 * m1 * sens(c, e1)) * (1 + e2 * m2 * sens(c, e2)) * (1 + carry * sens(c, carry)) * (1 + e3));
       if (noiseMoves[c.id] != null && !e3) {
         S.pf[c.id] = noiseMoves[c.id];
         noiseIds.push(c.id);
@@ -620,11 +637,11 @@
     });
     S.log.push({
       day: S.day, flow: copy(S.flow), kind: d.morning.kind, eff: d.morning.effects || {},
-      holdVals: holdVals, cashFrac: before > 0 ? S.cash / before : 1, risk: d.risk
+      holdVals: holdVals, cashFrac: tradingTotal > 0 ? S.cash / tradingTotal : 1, risk: d.risk
     });
     S.active = S.lvl === 2 ? activeToday.filter(function (a) { a.left--; return a.left > 0; }) : [];
     if (S.lvl === 2) morn(d).concat(eve(d)).forEach(function (n) { if (n.durationDays > 1) S.active.push({ news: n, left: n.durationDays - 1 }); });
-    S.last = { before: before, after: S.cash + holdingsValue(S.price), old: old, neu: copy(S.price), d: d, owned: copy(S.shares), newsImpact: newsImpact, reasons: reasons, noiseIds: noiseIds };
+    S.last = { before: before, after: S.cash + holdingsValue(S.price), old: old, eveningOld: eveningOld, neu: copy(S.price), d: d, owned: copy(S.shares), newsImpact: newsImpact, reasons: reasons, noiseIds: noiseIds };
     S.daily.push(S.last.after);
     S.flow = {};
     setTime(true, function () { if (eve(d).length) renderSudden(); else renderResult(); });
@@ -648,7 +665,7 @@
     S.phase = 'result';
     var L = S.last, d = L.d, O = C.texts.owl;
     var delta = L.after - L.before, hadShares = false;
-    C.companies.forEach(function (c) { if (L.owned[c.id] > 0) hadShares = true; });
+    C.companies.forEach(function (c) { if (L.owned[c.id] > 0 || (d.seasonOwned && d.seasonOwned[c.id] > 0)) hadShares = true; });
     var msg, cls = delta > 0 ? 'up' : delta < 0 ? 'down' : 'flat';
     if (!hadShares) msg = O.empty;
     else if (Math.round(delta) >= 1) msg = fill(O.gain, { n: coins(delta) });
@@ -657,7 +674,8 @@
 
     var rows = C.companies.map(function (c) {
       var o = L.old[c.id], n = L.neu[c.id], pc = Math.round((n - o) / o * 100);
-      var qty = L.owned[c.id] || 0, own = qty * (n - o);
+      var qty = L.owned[c.id] || 0;
+      var own = qty * (n - L.eveningOld[c.id]) + ((d.seasonContributions && d.seasonContributions[c.id]) || 0);
       var k = pc > 0 ? 'up' : pc < 0 ? 'down' : 'flat';
       var impact = L.newsImpact[c.id] || 0;
       var reasons = L.reasons[c.id] || [];
@@ -666,7 +684,7 @@
         html: '<div class="rrow"><div class="rrow-top"><div class="ic" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
           '<div class="nm">' + esc(c.name) + (qty ? '<span class="mine">у тебя ' + qty + ' шт.</span>' : '') + '<small>' + nf(o) + ' → ' + nf(n) + '</small></div>' +
           '<div class="pc ' + k + '">' + (pc > 0 ? '▲ +' : pc < 0 ? '▼ −' : '● ') + Math.abs(pc) + '%' +
-          (qty ? '<small>' + signed(own) + ' ' + coinWord(own) + '</small>' : '') + '</div></div>' +
+          (qty || own ? '<small class="' + (own > 0 ? 'up' : own < 0 ? 'down' : 'flat') + '">' + signed(own) + ' ' + coinWord(own) + '</small>' : '') + '</div></div>' +
           reasons.map(function (r) { return '<div class="why"><span class="why-arrow ' + r.direction + '" aria-label="' +
             (r.direction === 'up' ? 'Положительное влияние' : 'Отрицательное влияние') + '">' +
             (r.direction === 'up' ? '↑' : '↓') + '</span><span>' + esc(r.text) + '</span></div>'; }).join('') + '</div>'
@@ -674,7 +692,7 @@
     }).sort(function (a, b) { return b.sort - a.sort; });
 
     var concept = null;
-    (C.texts.concepts || []).forEach(function (x) { if (x.id === d.concept) concept = x; });
+    if (S.lvl === 1) (C.texts.concepts || []).forEach(function (x) { if (x.id === d.concept) concept = x; });
     var lastDay = S.day >= C.schedule.length - 1;
     var recap = (d.seasonEvent ? [esc(d.seasonEvent.emoji) + ' ' + esc(d.seasonEvent.title)] : []).concat(
       morn(d).map(function (n) { return '📰 Утро: ' + esc(n.title); }),
@@ -770,10 +788,10 @@
     show('<section class="screen final-screen"><div class="final-top"><div class="em">' + (pct >= 0 ? '🎉' : '🌟') + '</div><h2>Итоги игры</h2></div>' +
       '<div class="card final-metric"><span>Общая доходность</span><strong class="' + (pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat') + '">' +
       (pct > 0 ? '+' : '') + pct.toFixed(1).replace('.', ',') + '%</strong><small>' + nf(C.startCoins) + ' → ' + nf(mine) + ' монет</small>' +
-      '<p>Сколько процентов ты заработал или потерял за год.</p></div>' +
+      '<p>Твой результат за ' + C.schedule.length + ' игровых дней.</p></div>' +
       '<div class="card final-chart"><h2>Стоимость портфеля по дням</h2>' + portfolioChart(S.daily) + '</div>' +
-      '<div class="card final-metric"><span>Успешные сделки</span><strong>' + S.profitable + '</strong>' +
-      '<small>из ' + S.closed + ' ' + (S.closed === 1 ? 'продажи' : 'продаж') + '</small><p>' + esc(praise) + '</p></div>' +
+      (S.lvl === 2 ? '<div class="card final-metric"><span>Успешные сделки</span><strong>' + S.profitable + '</strong>' +
+      '<small>из ' + S.closed + ' ' + (S.closed === 1 ? 'продажи' : 'продаж') + '</small><p>' + esc(praise) + '</p></div>' : '') +
       '<div class="card final-learn"><h2>Что ты теперь знаешь</h2><ul class="learn">' +
       F.learned.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>' +
       '<div class="dock static"><button class="btn primary" data-act="replay" type="button">Закончить</button></div></section>', false);

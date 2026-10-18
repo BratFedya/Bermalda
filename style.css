@@ -109,18 +109,13 @@ p{margin:0 0 10px}
 /* news paper */
 .daytag{text-align:center;font-weight:800;color:var(--muted);font-size:14px;letter-spacing:.04em;text-transform:uppercase;margin:2px 0 10px}
 .paper{background:#FFFDF6;border-radius:6px 6px 18px 18px;padding:18px 18px 16px;box-shadow:0 6px 20px rgba(31,42,68,.12);border-top:6px solid var(--ink);position:relative}
-.paper-head{font-weight:900;letter-spacing:.06em;text-transform:uppercase;font-size:13px;color:var(--muted);display:flex;justify-content:space-between;margin-bottom:8px;border-bottom:2px dashed var(--line);padding-bottom:8px}
 .news-emoji{font-size:58px;line-height:1.1;text-align:center;margin:4px 0}
-.source{display:inline-block;font-size:13px;font-weight:800;padding:4px 10px;border-radius:99px;margin-bottom:6px;background:var(--up-soft);color:#0A6B4A}
-.source.rumor{background:var(--warn-soft);color:var(--warn)}
-.source.sudden{background:#EFE6FF;color:#5A2FB0}
 .paper h2{font-size:24px}
 .paper p{font-size:17px;margin:0}
 .duration{display:inline-block;margin-top:10px;font-size:12px;font-weight:800;color:#5145A4;background:#EDEAFF;padding:4px 9px;border-radius:20px}
 .season-announcement{border:2px solid #E8C869;background:#FFF5CE;border-radius:16px;padding:12px 14px;margin-bottom:12px}
 .season-announcement b{display:block;font-size:17px;line-height:1.2;margin-bottom:6px}
-.season-announcement p{font-size:14px;line-height:1.4;margin-bottom:6px}
-.season-announcement small{display:block;color:#6D571F;font-size:12px;line-height:1.35}
+.season-announcement p{font-size:14px;line-height:1.4;margin:0}
 .market .season-announcement{margin:12px 0 0}
 .long-news{background:var(--card);border-radius:16px;padding:12px 14px;margin-top:12px}
 .long-news h3{display:flex;align-items:center;justify-content:space-between;font-size:15px;margin:0 0 6px}
@@ -147,7 +142,7 @@ p{margin:0 0 10px}
 
 /* stats */
 .stats{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
-.stat{background:var(--card);border-radius:16px;padding:8px 12px;box-shadow:0 2px 10px rgba(31,42,68,.06)}
+.stat{display:flex;flex-direction:column;justify-content:space-between;background:var(--card);border-radius:16px;padding:8px 12px;box-shadow:0 2px 10px rgba(31,42,68,.06)}
 .stat span{display:block;font-size:12px;color:var(--muted);font-weight:700}
 .stat b{font-size:22px;display:flex;align-items:center}
 .stat small{font-size:12px;font-weight:800;margin-left:6px}
@@ -171,14 +166,12 @@ p{margin:0 0 10px}
 
 /* company card */
 .list{display:grid;gap:10px}
-.co{background:var(--card);border-radius:18px;padding:12px;box-shadow:0 3px 14px rgba(31,42,68,.08);display:grid;grid-template-columns:52px 1fr auto;grid-template-areas:"ic main px" "own own own" "btns btns btns";column-gap:10px;row-gap:6px;align-items:center}
-.co.info-open{grid-template-areas:"ic main px" "info info info" "own own own" "btns btns btns"}
+.co{background:var(--card);border-radius:18px;padding:12px;box-shadow:0 3px 14px rgba(31,42,68,.08);display:grid;grid-template-columns:52px minmax(0,1fr) 32px;grid-template-areas:"ic main help" "own own own" "btns btns btns";column-gap:10px;row-gap:6px;align-items:center}
+.co.info-open{grid-template-areas:"ic main help" "info info info" "own own own" "btns btns btns"}
 .co-ic{grid-area:ic;width:52px;height:52px;border-radius:16px;background:var(--c,#ddd);display:flex;align-items:center;justify-content:center;font-size:30px}
 .co-main{grid-area:main;min-width:0}
 .co-main b{display:block;font-size:17px}
-.co-heading{display:flex;align-items:center;gap:4px}
-.co-heading b{flex:1;min-width:0}
-.company-info-btn{display:flex;align-items:center;justify-content:center;flex:0 0 32px;width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-family:Georgia,serif;font-weight:900;font-size:18px;line-height:1}
+.company-info-btn{grid-area:help;align-self:start;justify-self:end;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font-family:Georgia,serif;font-weight:900;font-size:18px;line-height:1}
 .company-info-btn[aria-expanded="true"]{background:var(--accent);color:#fff}
 .company-info-panel{grid-area:info;font-size:14px;line-height:1.4;color:#414A83;background:var(--accent-soft);border-radius:12px;padding:10px 12px}
 .company-info-panel[hidden]{display:none}
@@ -187,10 +180,9 @@ p{margin:0 0 10px}
 .list-heading{font-size:15px;margin:8px 0 0;color:var(--ink)}
 .list-heading small{display:block;color:var(--muted);font-size:12px;font-weight:600}
 .co-main .desc{display:block;font-size:12.5px;color:var(--muted);line-height:1.2}
-.spark{display:block;width:70px;height:20px;margin-top:3px}
-.co-px{grid-area:px;text-align:right}
-.co-px b{display:block;font-size:24px;line-height:1}
-.co-px .chg{font-size:13px;font-weight:800}
+.co-trend{display:flex;align-items:center;gap:8px;margin-top:3px}
+.spark{display:block;width:70px;height:20px;flex:none}
+.co-chg{font-size:12px;font-weight:800}
 .co-own{grid-area:own;font-size:13.5px;color:var(--muted);font-weight:600;display:flex;justify-content:space-between;min-height:18px}
 .co-own b{color:var(--ink)}
 .co-btns{grid-area:btns;display:grid;grid-template-columns:1fr 1fr;gap:8px}
