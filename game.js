@@ -529,6 +529,9 @@
     if (d.seasonBefore && d.seasonEvent.effects[c.id]) prev = d.seasonBefore[c.id];
     if (h[h.length - 1] !== p) h = h.concat(p);
     var own = S.shares[c.id] || 0;
+    var buyPrice = p + sp(c.id), sellPrice = p - sp(c.id);
+    var buyCount = S.step === 'all' ? Math.floor(S.cash / buyPrice) : S.step;
+    var sellCount = S.step === 'all' ? own : S.step;
     var chg = '', cls = 'flat';
     if (prev != null) {
       var pc = Math.round((p - prev) / prev * 100);
@@ -552,8 +555,8 @@
       '<div class="co-own"><span>' + (own ? 'У тебя: <b>' + own + ' шт.</b>' : 'У тебя пока нет акций') + '</span>' +
       '<span>' + (own ? 'стоят ' + coins(own * p) : '') + '</span></div>' +
       '<div class="co-btns">' +
-        '<button class="mini sell" data-act="sell" data-id="' + esc(c.id) + '" type="button"' + (own ? '' : ' aria-disabled="true"') + '>Продать · ' + nf(p - sp(c.id)) + '</button>' +
-        '<button class="mini buy" data-act="buy" data-id="' + esc(c.id) + '" type="button">Купить · ' + nf(p + sp(c.id)) + '</button>' +
+        '<button class="mini sell" data-act="sell" data-id="' + esc(c.id) + '" type="button"' + (own ? '' : ' aria-disabled="true"') + '>Продать · ' + nf(sellPrice * sellCount) + '</button>' +
+        '<button class="mini buy" data-act="buy" data-id="' + esc(c.id) + '" type="button">Купить · ' + nf(buyPrice * buyCount) + '</button>' +
       '</div></div>';
   }
 
@@ -891,6 +894,7 @@
         Array.prototype.forEach.call(view.querySelectorAll('.chip'), function (b) {
           b.setAttribute('aria-pressed', b.getAttribute('data-v') === v ? 'true' : 'false');
         });
+        refreshMarket();
         play('tap'); break;
       }
       case 'buy': trade(t.getAttribute('data-id'), 'buy'); break;
