@@ -11,7 +11,10 @@
 <div id="sky" aria-hidden="true"><div id="skyN"></div><div id="stars"></div><div class="cl" style="top:130px;animation-delay:-8s"></div><div class="cl" style="top:270px;animation-delay:-26s"></div><div id="sun"></div><div id="moon"></div></div>
 <div id="app">
   <header id="bar">
-    <button id="btnSound" class="icon-btn" type="button" aria-pressed="false" aria-label="Включить звук">🔇</button>
+    <div class="bar-actions">
+      <button id="btnBack" class="back-btn" type="button" hidden><span aria-hidden="true">‹</span> Назад</button>
+      <button id="btnSound" class="icon-btn" type="button" aria-pressed="false" aria-label="Включить звук">🔇</button>
+    </div>
     <div id="dots" aria-hidden="true"></div>
     <div id="corner" aria-live="polite"></div>
   </header>

@@ -328,8 +328,11 @@
     toast._t = setTimeout(function () { t.classList.remove('show'); }, 2300);
   }
 
-  function setBar(showDots) {
+  function setBar(showDots, backAction) {
     var bar = $('#bar');
+    var back = $('#btnBack');
+    back.hidden = !backAction;
+    if (backAction) back.setAttribute('data-act', backAction); else back.removeAttribute('data-act');
     $('#corner').innerHTML = (showDots && S) ? '<span>' + (SI[S.season] || '') + ' ' + esc(S.season) + '</span><span>Уровень ' + S.lvl + '</span>' : '';
     bar.classList.toggle('nodots', !showDots);
     if (!showDots || !S) { $('#dots').innerHTML = ''; return; }
@@ -340,10 +343,10 @@
     $('#dots').innerHTML = h;
   }
 
-  function show(html, showDots) {
+  function show(html, showDots, backAction) {
     view.innerHTML = html;
     $('#toast').classList.remove('show');
-    setBar(showDots);
+    setBar(showDots, backAction);
     window.scrollTo(0, 0);
   }
 
@@ -362,10 +365,6 @@
   }
 
   /* ---------- экраны ---------- */
-  function backButton(action) {
-    return '<button class="back-btn" data-act="' + action + '" type="button"><span aria-hidden="true">‹</span> Назад</button>';
-  }
-
   function renderStart() {
     var T = (C || window.__DEFAULT_CONTENT).texts;
     show(
@@ -384,14 +383,14 @@
   function renderLevel(restoreLevel) {
     selectedLevel = null;
     if (!C.texts.levels) { newRun(1); renderIntro(0); return; }
-    show('<section class="screen">' + backButton('backToStart') + '<h2 class="center" style="margin-top:14px">Выбери уровень</h2>' +
+    show('<section class="screen"><h2 class="center" style="margin-top:14px">Выбери уровень</h2>' +
       C.texts.levels.map(function (l) {
         return '<button class="card lvl" data-act="level" data-v="' + l.id + '" aria-pressed="false" type="button"><div class="em">' + esc(l.emoji) +
           '</div><div><b>' + esc(l.title) + '</b><span>' + esc(l.text) + '</span></div></button>';
       }).join('') + '<div class="spacer"></div><div class="level-actions">' +
       '<button class="btn primary" data-act="beginRun" data-training="true" type="button" disabled>Пройти обучение</button>' +
       '<button class="btn secondary" data-act="beginRun" data-training="false" type="button" disabled>Играть без обучения</button>' +
-      '</div></section>', false);
+      '</div></section>', false, 'backToStart');
     if (C.texts.levels.some(function (l) { return l.id === restoreLevel; })) selectLevel(restoreLevel);
   }
 
@@ -429,26 +428,25 @@
     var dots = '';
     for (var k = 0; k < intros().length; k++) dots += '<i></i>';
     show('<section class="screen intro-screen">' +
-      backButton('introBack') +
       '<div class="mascot-row">' + mascot() + '<div class="bubble">Привет! Я свинка Финя и помогу разобраться, как устроены акции.</div></div>' +
       '<div class="card intro-card" id="introCard" aria-live="polite"></div>' +
       '<div class="dotsrow"><button class="arr" id="introPrev" data-act="introPrev" type="button" aria-label="Назад">‹</button>' +
       '<span id="introDots" class="intro-dots">' + dots + '</span>' +
       '<button class="arr" id="introArrowNext" data-act="introNext" type="button" aria-label="Дальше">›</button></div>' +
       '<div class="spacer"></div><button class="btn primary" id="introNext" data-act="introNext" type="button"></button>' +
-      '<button class="btn ghost" id="introSkip" data-act="introSkip" type="button">Пропустить</button></section>', false);
+      '<button class="btn ghost" id="introSkip" data-act="introSkip" type="button">Пропустить</button></section>', false, 'introBack');
     updateIntro(i, 0);
   }
 
   function renderCompanies() {
-    show('<section class="screen">' + backButton('backToIntro') + '<div class="daytag">Перед началом</div><h2 class="center">Компании городка</h2>' +
+    show('<section class="screen"><div class="daytag">Перед началом</div><h2 class="center">Компании городка</h2>' +
       '<p class="center company-lead">Узнай, чем занимаются компании.</p>' +
       '<div class="company-summary">' + C.companies.map(function (c) {
         return '<div class="summary-row"><div class="summary-icon" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
           '<div class="summary-copy"><b>' + esc(c.name) + '</b>' + (c.startup ? '<span class="startup-badge">🚀 Стартап</span>' : '') +
           '<small>' + esc(c.about || c.desc) + '</small></div></div>';
       }).join('') + '</div><div class="spacer"></div>' +
-      '<button class="btn primary" data-act="beginGame" type="button">Начать игру</button></section>', false);
+      '<button class="btn primary" data-act="beginGame" type="button">Начать игру</button></section>', false, 'backToIntro');
   }
 
   function seasonAnnouncement(d) {
@@ -912,6 +910,7 @@
   function boot() {
     view = $('#view');
     view.addEventListener('click', onClick);
+    $('#btnBack').addEventListener('click', onClick);
     $('#btnSound').addEventListener('click', toggleSound);
     contentPromise = loadContent();
     renderStart();

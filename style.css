@@ -25,9 +25,10 @@ button:not(:disabled):active{transform:scale(.97)}
   padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);
 }
 #bar{
-  display:grid;grid-template-columns:44px minmax(0,1fr) 44px;align-items:center;
+  display:grid;grid-template-columns:auto minmax(0,1fr) 44px;align-items:center;
   padding:calc(10px + env(safe-area-inset-top)) 14px 6px;flex:0 0 auto;
 }
+.bar-actions{display:flex;align-items:center;gap:8px}
 .icon-btn{
   width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.85);
   font-size:18px;line-height:1;
@@ -62,7 +63,8 @@ p{margin:0 0 10px}
 .btn.big{font-size:20px;min-height:58px}
 .level-actions .btn{border:1px solid #BCC3CC;transition:transform .12s ease,opacity .2s ease,background .2s ease}
 .level-actions .btn:disabled{background:var(--line);color:var(--muted);opacity:.45;cursor:default}
-.back-btn{align-self:flex-start;display:flex;align-items:center;gap:6px;min-height:44px;padding:4px 10px;margin-bottom:6px;border:1px solid #BCC3CC;border-radius:12px;background:rgba(255,255,255,.8);font-size:15px;font-weight:700}
+.back-btn{display:flex;align-items:center;gap:6px;min-height:44px;padding:4px 10px;border:1px solid #BCC3CC;border-radius:12px;background:rgba(255,255,255,.8);font-size:15px;font-weight:700}
+.back-btn[hidden]{display:none}
 .back-btn span{font-size:26px;line-height:1}
 
 /* hero / start */
