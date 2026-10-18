@@ -83,6 +83,8 @@
   /* ---------- контент ---------- */
   var C = null;            // активный контент
   var contentPromise = null;
+  var SEASON_ORDER = ['Весна', 'Лето', 'Осень', 'Зима'];
+  var SEASON_DAYS = 3, MAX_LONG_NEWS = 2;
 
   function validate(c) {
     try {
@@ -93,8 +95,16 @@
       if (!t.owl || !t.final || !t.intro || !t.badges || !t.concepts) return false;
       var ids = {};
       c.companies.forEach(function (x) { if (!x.id || !x.name || !(x.price > 0)) throw 0; ids[x.id] = 1; });
+      SEASON_ORDER.forEach(function (name) {
+        var season = c.seasons && c.seasons[name];
+        if (!season || !season.text || !season.factors || !season.notes) throw 0;
+        Object.keys(season.factors).forEach(function (id) {
+          if (!ids[id] || !isFinite(season.factors[id]) || !(season.factors[id] > 0)) throw 0;
+        });
+      });
       function chk(n) {
         if (!n || !n.title) throw 0;
+        if (n.durationDays != null && (typeof n.durationDays !== 'number' || !isFinite(n.durationDays) || n.durationDays < 1 || n.durationDays % 1)) throw 0;
         for (var k in (n.effects || {})) { if (!ids[k]) throw 0; }
       }
       Object.keys(c.pools).forEach(function (k) {
@@ -147,6 +157,25 @@
   function sp(id) { return S.lvl === 2 ? Math.max(1, Math.round(S.price[id] * 0.04)) : 0; }
   function sens(c, e) { return S.lvl === 2 && c.startup ? (e < 0 ? 1.5 : 1.25) : 1; }
   function intros() { return C.texts.intro.concat(S && S.lvl === 2 ? (C.texts.intro2 || []) : []); }
+  function seasonAt(day) {
+    return SEASON_ORDER[(S.startSeason + Math.floor(day / SEASON_DAYS)) % SEASON_ORDER.length];
+  }
+  function seasonNews(day) {
+    if (S.lvl !== 2 || day % SEASON_DAYS) return null;
+    var name = seasonAt(day), data = C.seasons[name], previous = day ? seasonAt(day - 1) : null;
+    var effects = {}, notes = {};
+    C.companies.forEach(function (c) {
+      var factor = data.factors[c.id] || 1;
+      var oldFactor = previous ? (C.seasons[previous].factors[c.id] || 1) : 1;
+      var change = factor / oldFactor - 1;
+      if (Math.abs(change) < 0.000001) return;
+      effects[c.id] = change;
+      notes[c.id] = name + ': ' + (data.notes[c.id] || 'Смена времени года меняет спрос на товары компании');
+    });
+    return { id: 'season_' + day, kind: 'season', emoji: SI[name],
+      title: previous ? 'Смена сезона: ' + previous + ' → ' + name : 'Первый сезон — ' + name.toLowerCase(),
+      text: data.text, hint: data.hint, effects: effects, notes: notes };
+  }
   function startupNews(c, win) {
     var X = C.texts.startup[win ? 'win' : 'fail'], e = {}, n = {};
     e[c.id] = win ? 0.5 : -0.3; n[c.id] = X.note;
@@ -165,57 +194,89 @@
     var m = /[?&]seed=(-?\d+)/.exec(location.search);
     var seed = m ? parseInt(m[1], 10) : (Date.now() ^ Math.floor(Math.random() * 1e9));
     S = {
-      rng: mulberry32(seed), cash: C.startCoins, day: 0, step: 1, lvl: lvl || 1, su: {}, season: '',
-      shares: {}, daily: [C.startCoins], active: [],
+      rng: mulberry32(seed), cash: C.startCoins, day: 0, step: 1, lvl: lvl || 1, su: {}, season: '', startSeason: 0,
+      shares: {}, lots: {}, infoOpen: {}, closed: 0, profitable: 0, daily: [C.startCoins], active: [],
       pf: {}, price: {}, hist: {}, plan: [], flow: {}, log: [], last: null
     };
+    S.startSeason = Math.floor(S.rng() * SEASON_ORDER.length);
+    S.season = seasonAt(0);
     C.companies.forEach(function (c) {
-      S.shares[c.id] = 0; S.pf[c.id] = c.price; S.price[c.id] = Math.round(c.price); S.hist[c.id] = [Math.round(c.price)];
+      S.shares[c.id] = 0; S.lots[c.id] = []; S.pf[c.id] = c.price; S.price[c.id] = Math.round(c.price); S.hist[c.id] = [Math.round(c.price)];
     });
     buildPlan();
   }
 
   function buildPlan() {
-    var used = {}, slots = {};
+    var used = {}, slots = {}, longCounts = [];
+    for (var day = 0; day < C.schedule.length; day++) longCounts.push(0);
+    function target(day) { return Math.min(3, 1 + Math.floor(day / 2)); }
     function hasTag(it, tag) { return !tag || (it.tags || []).indexOf(tag) >= 0; }
-    function allowed(it) { return S.lvl === 2 || !(it.durationDays > 1); }
-    function pick(spec) {
+    function canPlace(it, day) {
+      var season = seasonAt(day), duration = it.durationDays || 1;
+      if (it.season && it.season !== season) return false;
+      if (it.seasons && it.seasons.indexOf(season) < 0) return false;
+      if (duration === 1) return true;
+      if (S.lvl !== 2) return false;
+      for (var i = day; i < Math.min(C.schedule.length, day + duration); i++) {
+        if (longCounts[i] >= MAX_LONG_NEWS) return false;
+      }
+      return true;
+    }
+    function reserve(it, day) {
+      used[it.id] = 1;
+      if (it.durationDays > 1) {
+        for (var i = day; i < Math.min(C.schedule.length, day + it.durationDays); i++) longCounts[i]++;
+      }
+      return it;
+    }
+    function choose(items, day) {
+      return items.length ? reserve(items[Math.floor(S.rng() * items.length)], day) : null;
+    }
+    function fallback(day) {
+      var items = C.pools.good ? C.pools.good.items.filter(function (it) { return canPlace(it, day); }) : [];
+      return choose(items, day) || { id: 'quiet_' + day, kind: 'fact', emoji: '📰', source: 'Городская газета',
+        title: 'Спокойный день в городке', text: 'Компании продолжают работать. Важных новых событий пока нет.', effects: {}, notes: {},
+        hint: 'Нужно ли принимать новое решение каждый день, если ничего важного не произошло?' };
+    }
+    function pick(spec, day) {
       var pool = C.pools[spec.pool];
       if (pool.type === 'pair') {
         var key = spec.slot || spec.pool;
         if (slots[key] == null) slots[key] = Math.floor(S.rng() * pool.items.length);
-        return pool.items[slots[key]][spec.part];
+        var paired = pool.items[slots[key]][spec.part];
+        return canPlace(paired, day) ? reserve(paired, day) : fallback(day);
       }
-      var items = pool.items.filter(function (it) { return !used[it.id] && hasTag(it, spec.tag) && allowed(it); });
-      if (!items.length) items = pool.items.filter(function (it) { return hasTag(it, spec.tag) && allowed(it); });
-      if (!items.length) items = pool.items;
-      var it = items[Math.floor(S.rng() * items.length)];
-      used[it.id] = 1;
-      return it;
+      var items = pool.items.filter(function (it) { return !used[it.id] && hasTag(it, spec.tag) && canPlace(it, day); });
+      if (!items.length) items = pool.items.filter(function (it) { return hasTag(it, spec.tag) && canPlace(it, day); });
+      if (!items.length) items = pool.items.filter(function (it) { return canPlace(it, day); });
+      return choose(items, day) || fallback(day);
     }
-    C.schedule.forEach(function (e) {
+    C.schedule.forEach(function (e, day) {
       S.plan.push({
-        morning: pick(e.morning),
-        evening: e.evening ? pick(e.evening) : null,
-        hintEvening: !!e.hintEvening, risk: !!e.risk, concept: e.concept
+        morning: pick(e.morning, day), evening: e.evening ? pick(e.evening, day) : null,
+        hintEvening: !!e.hintEvening, risk: !!e.risk, concept: e.concept,
+        season: seasonAt(day), seasonEvent: seasonNews(day), extra: [], late: []
       });
     });
     if (S.lvl === 2) {
-      var startupDays = [2, 3, 4, 5];
+      var startupDays = [];
+      S.plan.forEach(function (d, day) { if (1 + eve(d).length < target(day)) startupDays.push(day); });
       C.companies.forEach(function (c) {
-        if (!c.startup) return;
+        if (!c.startup || !startupDays.length) return;
         var index = Math.floor(S.rng() * startupDays.length);
         S.su[c.id] = { win: S.rng() < 0.4, day: startupDays.splice(index, 1)[0] };
       });
-      S.plan.forEach(function (d, i) {
-        d.late = []; d.extra = [];
-        for (var id in S.su) if (S.su[id].day === i) d.late.push(startupNews(co(id), S.su[id].win));
-        var need = Math.max(0, 3 - 1 - eve(d).length);
+      S.plan.forEach(function (d, day) {
+        for (var id in S.su) if (S.su[id].day === day) d.late.push(startupNews(co(id), S.su[id].win));
+        var need = Math.max(0, target(day) - 1 - eve(d).length);
         while (need-- > 0) {
-          var cand = [];
-          ['good', 'mixed', 'complex'].forEach(function (k) { (C.pools[k] ? C.pools[k].items : []).forEach(function (it) { if (!used[it.id]) cand.push(it); }); });
-          if (!cand.length) break;
-          var it = cand[Math.floor(S.rng() * cand.length)]; used[it.id] = 1; d.extra.push(it);
+          var candidates = [];
+          ['good', 'mixed', 'complex'].forEach(function (key) {
+            (C.pools[key] ? C.pools[key].items : []).forEach(function (it) {
+              if (!used[it.id] && canPlace(it, day)) candidates.push(it);
+            });
+          });
+          d.extra.push(choose(candidates, day) || fallback(day));
         }
       });
     }
@@ -352,13 +413,33 @@
 
   function renderCompanies() {
     show('<section class="screen"><div class="daytag">Перед началом</div><h2 class="center">Компании городка</h2>' +
-      '<p class="center company-lead">Узнай, чем они занимаются. Новости помогут понять, как изменятся их цены.</p>' +
+      '<p class="center company-lead">Узнай, чем занимаются компании.</p>' +
       '<div class="company-summary">' + C.companies.map(function (c) {
-        return '<div class="summary-row"><div class="co-ic" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
-          '<div><b>' + esc(c.name) + '</b>' + (c.startup ? '<span class="startup-badge">🚀 Стартап</span>' : '') +
-          '<small>' + esc(c.desc) + '</small></div><strong>' + nf(c.price) + '</strong></div>';
+        return '<div class="summary-row"><div class="summary-icon" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
+          '<div class="summary-copy"><b>' + esc(c.name) + '</b>' + (c.startup ? '<span class="startup-badge">🚀 Стартап</span>' : '') +
+          '<small>' + esc(c.about || c.desc) + '</small></div></div>';
       }).join('') + '</div><div class="spacer"></div>' +
       '<button class="btn primary" data-act="beginGame" type="button">Начать игру</button></section>', false);
+  }
+
+  function seasonAnnouncement(d) {
+    if (!d.seasonEvent) return '';
+    return '<aside class="season-announcement"><b>' + esc(d.seasonEvent.emoji) + ' ' + esc(d.seasonEvent.title) + '</b>' +
+      '<p>' + esc(d.seasonEvent.text) + '</p><small>Сезонное изменение цен произойдёт сегодня вечером. Сезон длится три дня.</small></aside>';
+  }
+
+  function longNewsHTML(d) {
+    if (S.lvl !== 2) return '';
+    var active = S.active.concat(morn(d).filter(function (n) { return n.durationDays > 1; }).map(function (n) {
+      return { news: n, left: n.durationDays };
+    }));
+    return '<section class="long-news"><h3>Долгие новости <span>' + active.length + ' / ' + MAX_LONG_NEWS + '</span></h3>' +
+      (active.length ? '<ul>' + active.map(function (a) {
+        var remaining = a.left === 1 ? 'Последний день влияния' : a.left === 2 ? 'Сегодня и завтра' : 'Осталось дней: ' + a.left + ', включая сегодня';
+        var names = Object.keys(a.news.effects || {}).filter(function (id) { return co(id); }).map(function (id) { return esc(co(id).name); });
+        return '<li><details><summary>' + esc(a.news.title) + '</summary><p>' + esc(a.news.text || '') + '</p></details>' +
+          '<small>' + esc(remaining) + '</small><p class="long-news-companies">' + names.join(' · ') + '</p></li>';
+      }).join('') + '</ul>' : '<p class="empty-events">Сейчас нет новостей с длительным влиянием.</p>') + '</section>';
   }
 
   function newsCard(n, kindClass) {
@@ -373,18 +454,12 @@
       (S.lvl === 2 && n.durationDays > 1 ? '<span class="duration">Влияет ' + n.durationDays + ' дня</span>' : '') + '</article>';
   }
 
-  function marketAdvice(hint) {
-    var news = morn(S.plan[S.day]), body = hint ? '<p>' + esc(hint) + '</p>' : '';
-    if (news.some(function (n) { return n.kind === 'rumor'; })) body += '<p>Слух ещё не подтверждён. Проверь источник, прежде чем ему доверять.</p>';
-    news.forEach(function (n) {
-      if (news.length > 1) body += '<h3>' + esc(n.title) + '</h3>';
-      Object.keys(n.effects || {}).forEach(function (id) {
-        var c = co(id), positive = n.effects[id] > 0, note = n.notes && n.notes[id];
-        if (!c || !n.effects[id]) return;
-        body += '<div class="advice-effect"><b class="' + (positive ? 'up' : 'down') + '">' +
-          (positive ? '▲ ' : '▼ ') + esc(c.name) + '</b><span>' + esc(note || (positive ? 'Спрос может вырасти.' : 'Спрос может упасть.')) + '</span></div>';
-      });
-    });
+  function marketAdvice() {
+    var d = S.plan[S.day], news = (d.seasonEvent ? [d.seasonEvent] : []).concat(morn(d));
+    var body = news.map(function (n) {
+      return '<p class="advice-note">' + esc(n.hint ||
+        'Кому это событие добавит покупателей, а кому — расходов? Подумай, какие компании с ним связаны.') + '</p>';
+    }).join('');
     return '<details class="owl-help"><summary>' + owl('') + '<span>Нужна подсказка? Нажми на Сову</span><i>▾</i></summary>' +
       '<div class="owl-help-body">' + body + '</div></details>';
   }
@@ -392,13 +467,13 @@
   function renderNews() {
     S.phase = 'news';
     var d = S.plan[S.day];
-    morn(d).forEach(function (n) { if (n.season) S.season = n.season; });
-    if (!S.season) S.season = 'Лето';
+    S.season = d.season;
     document.body.setAttribute('data-s', S.season);
     play('news');
     show(
       '<section class="screen">' +
         '<div class="daytag">День ' + (S.day + 1) + ' из ' + C.schedule.length + ' · утро</div>' +
+        seasonAnnouncement(d) +
         morn(d).map(function (n) { return newsCard(n); }).join('') +
         '<div class="spacer"></div>' +
         '<button class="btn primary" data-act="toMarket" type="button">К торгам</button>' +
@@ -415,11 +490,18 @@
       chg = (pc > 0 ? '▲ +' : pc < 0 ? '▼ −' : '● ') + Math.abs(pc) + '%';
     }
     var color = h[h.length - 1] >= h[0] ? '#0E9F6E' : '#E5484D';
-    return '<div class="co" data-co="' + esc(c.id) + '">' +
+    var infoOpen = !!S.infoOpen[c.id];
+    return '<div class="co' + (infoOpen ? ' info-open' : '') + '" data-co="' + esc(c.id) + '">' +
       '<div class="co-ic" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
-      '<div class="co-main"><b>' + esc(c.name) + '</b>' + (c.startup ? '<span class="startup-badge">🚀 Стартап</span>' : '') +
+      '<div class="co-main"><div class="co-heading"><b>' + esc(c.name) + '</b>' +
+      (c.seasonInfo ? '<button class="company-info-btn" data-act="companyInfo" data-id="' + esc(c.id) +
+        '" type="button" aria-label="Справка о компании «' + esc(c.name) + '»" aria-expanded="' + infoOpen +
+        '" aria-controls="company-info-' + esc(c.id) + '">i</button>' : '') + '</div>' +
+      (c.startup ? '<span class="startup-badge">🚀 Стартап</span>' : '') +
       '<span class="desc">' + esc(c.desc) + '</span>' + spark(h, color) + '</div>' +
       '<div class="co-px"><b>' + nf(p) + '</b><span class="chg ' + cls + '">' + (chg || 'цена') + '</span></div>' +
+      (c.seasonInfo ? '<div class="company-info-panel" id="company-info-' + esc(c.id) + '"' +
+        (infoOpen ? '' : ' hidden') + '><p>' + esc(c.seasonInfo) + '</p></div>' : '') +
       '<div class="co-own"><span>' + (own ? 'У тебя: <b>' + own + ' шт.</b>' : 'У тебя пока нет акций') + '</span>' +
       '<span>' + (own ? 'стоят ' + coins(own * p) : '') + '</span></div>' +
       '<div class="co-btns">' +
@@ -445,9 +527,7 @@
   function renderMarket() {
     S.phase = 'market';
     S.flow = {};
-    var d = S.plan[S.day], n = d.morning, hint = '';
-    if (S.day === 0) hint = S.lvl === 2 ? C.texts.owl.spread : C.texts.owl.firstTrade;
-    else if (d.hintEvening) hint = C.texts.owl.hintSudden;
+    var d = S.plan[S.day], n = d.morning;
     var steps = [1, 5, 10, 'all'];
     var chips = steps.map(function (v) {
       return '<button class="chip" data-act="step" data-v="' + v + '" aria-pressed="' + (S.step === v) + '" type="button">' + (v === 'all' ? 'Все' : v) + '</button>';
@@ -457,7 +537,8 @@
         '<div class="stats" id="stats">' + statsHTML() + '</div>' +
         '<button class="newsstrip" data-act="toggleNews" aria-expanded="false" type="button"><span class="e">' + esc(n.emoji || '📰') + '</span><b>' + esc(morn(d).map(function (x) { return x.title; }).join(' · ')) + '</b><i>▾</i></button>' +
         '<div class="newsmore" id="newsmore" hidden>' + morn(d).map(function (x) { return esc(x.text || '') + ' <small>(' + esc(x.source || '') + ')</small>'; }).join('<br>') + '</div>' +
-        marketAdvice(hint) +
+        seasonAnnouncement(d) + longNewsHTML(d) +
+        marketAdvice() +
         '<div class="stepbar"><span>За раз, шт.:</span>' + chips + '</div>' +
         '<div class="list" id="list">' + companyList() + '</div>' +
         '<div class="dock"><button class="btn primary" data-act="endDay" type="button">Закончить день</button></div>' +
@@ -481,11 +562,20 @@
       want = step === 'all' ? afford : step;
       qty = Math.min(want, afford);
       S.cash -= qty * p; S.shares[id] = own + qty; S.flow[id] = (S.flow[id] || 0) + qty * p;
+      S.lots[id].push({ qty: qty, price: p });
       if (qty < want) toast('Куплено: ' + qty + ' шт. — на большее не хватило монет');
     } else {
       if (own < 1) { toast('Пока нечего продавать: акций «' + c.name + '» у тебя нет.'); return; }
       want = step === 'all' ? own : step;
       qty = Math.min(want, own);
+      var left = qty, cost = 0;
+      while (left > 0 && S.lots[id].length) {
+        var lot = S.lots[id][0], taken = Math.min(left, lot.qty);
+        cost += taken * lot.price; lot.qty -= taken; left -= taken;
+        if (!lot.qty) S.lots[id].shift();
+      }
+      S.closed++;
+      if (qty * p > cost) S.profitable++;
       S.cash += qty * p; S.shares[id] = own - qty; S.flow[id] = (S.flow[id] || 0) - qty * p;
     }
     play('coin');
@@ -498,14 +588,46 @@
     var holdVals = {};
     C.companies.forEach(function (c) { holdVals[c.id] = (S.shares[c.id] || 0) * old[c.id]; });
     // сила реакции рынка на новость слегка меняется от раза к разу
-    var m1 = 0.7 + 0.6 * S.rng(), m2 = 0.7 + 0.6 * S.rng(), newsImpact = {}, activeToday = S.lvl === 2 ? S.active.slice() : [];
+    var m1 = 0.7 + 0.6 * S.rng(), m2 = 0.7 + 0.6 * S.rng(), newsImpact = {}, reasons = {}, activeToday = S.lvl === 2 ? S.active.slice() : [];
     function sum(list, id) { var t = 0; list.forEach(function (n) { t += (n.effects && n.effects[id]) || 0; }); return t; }
+    function recordReason(n, continuing) {
+      Object.keys(n.effects || {}).forEach(function (id) {
+        var effect = n.effects[id];
+        if (!effect || !co(id)) return;
+        if (!reasons[id]) reasons[id] = [];
+        reasons[id].push({ direction: effect > 0 ? 'up' : 'down', text: (continuing ? 'Продолжается: ' : '') + ((n.notes && n.notes[id]) || n.title) });
+      });
+    }
+    morn(d).concat(eve(d)).forEach(function (n) { recordReason(n, false); });
+    activeToday.forEach(function (a) { recordReason(a.news, true); });
+    if (d.seasonEvent) recordReason(d.seasonEvent, false);
+    // Слабые колебания — максимум у двух компаний без влияющих на них новостей.
+    var noiseMoves = {}, noiseIds = [], noiseCandidates = C.companies.filter(function (c) {
+      return !reasons[c.id] && Math.floor(S.price[c.id] * 0.025) >= 1;
+    });
+    var noiseCount = Math.min(noiseCandidates.length, 1 + Math.floor(S.rng() * 2));
+    for (var i = 0; i < noiseCount; i++) {
+      var candidate = noiseCandidates.splice(Math.floor(S.rng() * noiseCandidates.length), 1)[0];
+      var price = S.price[candidate.id];
+      var move = Math.max(1, Math.min(Math.floor(price * 0.025), Math.round(price * (0.01 + S.rng() * 0.01))));
+      noiseMoves[candidate.id] = price + (S.rng() < 0.5 ? -move : move);
+    }
     C.companies.forEach(function (c) {
       var e1 = sum(morn(d), c.id), e2 = sum(eve(d), c.id), carry = sum(activeToday.map(function (a) { return a.news; }), c.id), e3 = 0;
-      var noise = (S.rng() - 0.5) * 0.05 * (S.lvl === 2 && c.startup ? 3 : 1);
-      if (S.lvl === 2 && c.startup && S.rng() < 0.09) e3 = S.rng() < 0.5 ? -0.22 : 0.26;
-      newsImpact[c.id] = e1 * m1 * sens(c, e1) + e2 * m2 * sens(c, e2) + carry * sens(c, carry) + e3;
-      S.pf[c.id] = Math.max(3, S.pf[c.id] * (1 + e1 * m1 * sens(c, e1)) * (1 + e2 * m2 * sens(c, e2)) * (1 + carry * sens(c, carry)) * (1 + e3) * (1 + noise));
+      var seasonEffect = d.seasonEvent ? (d.seasonEvent.effects[c.id] || 0) : 0;
+      if (S.lvl === 2 && c.startup && S.rng() < 0.09) {
+        e3 = S.rng() < 0.5 ? -0.22 : 0.26;
+        if (!reasons[c.id]) reasons[c.id] = [];
+        reasons[c.id].push({ direction: e3 > 0 ? 'up' : 'down', text: e3 > 0 ?
+          'Новые заказы → у стартапа больше покупателей → цена растёт' :
+          'Отмена заказов → у стартапа меньше доходов → цена падает' });
+      }
+      newsImpact[c.id] = e1 * m1 * sens(c, e1) + e2 * m2 * sens(c, e2) + carry * sens(c, carry) + e3 + seasonEffect;
+      S.pf[c.id] = Math.max(3, S.pf[c.id] * (1 + e1 * m1 * sens(c, e1)) * (1 + e2 * m2 * sens(c, e2)) * (1 + carry * sens(c, carry)) * (1 + e3) * (1 + seasonEffect));
+      if (noiseMoves[c.id] != null && !e3) {
+        S.pf[c.id] = noiseMoves[c.id];
+        noiseIds.push(c.id);
+      }
       S.price[c.id] = Math.max(5, Math.round(S.pf[c.id]));
       S.hist[c.id].push(S.price[c.id]);
     });
@@ -515,7 +637,7 @@
     });
     S.active = S.lvl === 2 ? activeToday.filter(function (a) { a.left--; return a.left > 0; }) : [];
     if (S.lvl === 2) morn(d).concat(eve(d)).forEach(function (n) { if (n.durationDays > 1) S.active.push({ news: n, left: n.durationDays - 1 }); });
-    S.last = { before: before, after: S.cash + holdingsValue(S.price), old: old, neu: copy(S.price), d: d, owned: copy(S.shares), newsImpact: newsImpact };
+    S.last = { before: before, after: S.cash + holdingsValue(S.price), old: old, neu: copy(S.price), d: d, owned: copy(S.shares), newsImpact: newsImpact, reasons: reasons, noiseIds: noiseIds };
     S.daily.push(S.last.after);
     S.flow = {};
     setTime(true, function () { if (eve(d).length) renderSudden(); else renderResult(); });
@@ -551,22 +673,25 @@
       var qty = L.owned[c.id] || 0, own = qty * (n - o);
       var k = pc > 0 ? 'up' : pc < 0 ? 'down' : 'flat';
       var impact = L.newsImpact[c.id] || 0;
-      var badge = impact > 0 ? '<span class="news-impact positive">Положительная</span>' :
-        impact < 0 ? '<span class="news-impact negative">Отрицательная</span>' :
-        '<span class="news-impact neutral">Без новости</span>';
+      var reasons = L.reasons[c.id] || [];
       return {
         sort: Math.abs(impact) * 1000 + Math.abs(pc),
         html: '<div class="rrow"><div class="rrow-top"><div class="ic" style="--c:' + esc(c.color) + '">' + esc(c.emoji) + '</div>' +
-          '<div class="nm">' + esc(c.name) + (qty ? '<span class="mine">у тебя ' + qty + ' шт.</span>' : '') + badge + '<small>' + nf(o) + ' → ' + nf(n) + '</small></div>' +
+          '<div class="nm">' + esc(c.name) + (qty ? '<span class="mine">у тебя ' + qty + ' шт.</span>' : '') + '<small>' + nf(o) + ' → ' + nf(n) + '</small></div>' +
           '<div class="pc ' + k + '">' + (pc > 0 ? '▲ +' : pc < 0 ? '▼ −' : '● ') + Math.abs(pc) + '%' +
-          (qty ? '<small>' + signed(own) + ' ' + coinWord(own) + '</small>' : '') + '</div></div></div>'
+          (qty ? '<small>' + signed(own) + ' ' + coinWord(own) + '</small>' : '') + '</div></div>' +
+          reasons.map(function (r) { return '<div class="why"><span class="why-arrow ' + r.direction + '" aria-label="' +
+            (r.direction === 'up' ? 'Положительное влияние' : 'Отрицательное влияние') + '">' +
+            (r.direction === 'up' ? '↑' : '↓') + '</span><span>' + esc(r.text) + '</span></div>'; }).join('') + '</div>'
       };
     }).sort(function (a, b) { return b.sort - a.sort; });
 
     var concept = null;
     (C.texts.concepts || []).forEach(function (x) { if (x.id === d.concept) concept = x; });
     var lastDay = S.day >= C.schedule.length - 1;
-    var recap = morn(d).map(function (n) { return '📰 Утро: ' + esc(n.title); }).concat(eve(d).map(function (n) { return '🌙 Вечер: ' + esc(n.title); })).join('<br>');
+    var recap = (d.seasonEvent ? [esc(d.seasonEvent.emoji) + ' ' + esc(d.seasonEvent.title)] : []).concat(
+      morn(d).map(function (n) { return '📰 Утро: ' + esc(n.title); }),
+      eve(d).map(function (n) { return '🌙 Вечер: ' + esc(n.title); })).join('<br>');
 
     show(
       '<section class="screen">' +
@@ -576,6 +701,8 @@
         '<div class="' + cls + '" style="font-weight:800" id="dl">&nbsp;</div></div>' +
         '<div class="owl-row">' + owl() + '<div class="bubble">' + esc(msg) + '</div></div>' +
         '<div class="recap">' + recap + '</div>' +
+        (L.noiseIds.length ? '<p class="market-note">Цены компаний иногда слегка колеблются без видимых причин. Сегодня это: ' +
+          L.noiseIds.map(function (id) { return '«' + esc(co(id).name) + '»'; }).join(', ') + '.</p>' : '') +
         rows.map(function (r) { return r.html; }).join('') +
         (concept ? '<div class="concept"><div class="t">Новое слово</div><b>' + esc(concept.title) + '</b><p>' + esc(concept.text) + '</p></div>' : '') +
         '<div class="dock"><button class="btn primary" data-act="next" type="button">' + (lastDay ? 'Узнать итоги' : 'Начать новый день') + '</button></div>' +
@@ -648,11 +775,18 @@
   function renderFinal() {
     S.phase = 'final';
     var F = C.texts.final, mine = total(), pct = (mine - C.startCoins) / C.startCoins * 100;
+    var praise = !S.closed ? 'Ты пока не продавал акции — подождать тоже можно.' :
+      S.profitable === S.closed ? 'Все твои продажи принесли прибыль!' :
+      S.profitable > S.closed / 2 ? 'Большая часть твоих продаж принесла прибыль!' :
+      S.profitable ? 'У тебя есть прибыльные продажи. Продолжай наблюдать за новостями!' :
+      'Не каждая продажа приносит прибыль. Ты учишься замечать причины изменений.';
     show('<section class="screen final-screen"><div class="final-top"><div class="em">' + (pct >= 0 ? '🎉' : '🌟') + '</div><h2>Итоги игры</h2></div>' +
       '<div class="card final-metric"><span>Общая доходность</span><strong class="' + (pct > 0 ? 'up' : pct < 0 ? 'down' : 'flat') + '">' +
       (pct > 0 ? '+' : '') + pct.toFixed(1).replace('.', ',') + '%</strong><small>' + nf(C.startCoins) + ' → ' + nf(mine) + ' монет</small>' +
       '<p>Сколько процентов ты заработал или потерял за год.</p></div>' +
       '<div class="card final-chart"><h2>Стоимость портфеля по дням</h2>' + portfolioChart(S.daily) + '</div>' +
+      '<div class="card final-metric"><span>Успешные сделки</span><strong>' + S.profitable + '</strong>' +
+      '<small>из ' + S.closed + ' ' + (S.closed === 1 ? 'продажи' : 'продаж') + '</small><p>' + esc(praise) + '</p></div>' +
       '<div class="card final-learn"><h2>Что ты теперь знаешь</h2><ul class="learn">' +
       F.learned.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul></div>' +
       '<div class="dock static"><button class="btn primary" data-act="replay" type="button">Закончить</button></div></section>', false);
@@ -680,6 +814,17 @@
       case 'introSkip': renderCompanies(); break;
       case 'beginGame': renderNews(); break;
       case 'toMarket': play('tap'); renderMarket(); break;
+      case 'companyInfo': {
+        if (!S || S.phase !== 'market') break;
+        var id = t.getAttribute('data-id'), card = t.closest('.co'), panel = card.querySelector('.company-info-panel');
+        if (!panel) break;
+        var open = !S.infoOpen[id];
+        S.infoOpen[id] = open;
+        panel.hidden = !open;
+        card.classList.toggle('info-open', open);
+        t.setAttribute('aria-expanded', open ? 'true' : 'false');
+        play('tap'); break;
+      }
       case 'toggleNews': {
         var more = $('#newsmore'), open = more.hidden;
         more.hidden = !open; t.classList.toggle('open', open); t.setAttribute('aria-expanded', open ? 'true' : 'false');
